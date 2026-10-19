@@ -735,13 +735,226 @@ let topLevelReturnTests = [
 
 let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests
 
+// ///////////////////////////// C calls ///////////////////////////////////////
+
+open CCall
+
+let srcLines (code : string) = code.Split('\n') |> Array.map (fun l -> l.Trim()) |> Array.toList
+
+/// assemble code, find its first "@ C:" prototype, call it with argument texts
+let cCall (code : string) (argTexts : string list) =
+    let lines = srcLines code
+    let lim = reLoadProgram lines
+    match findPrototypes lines with
+    | Ok proto :: _ ->
+        let typeOf i = match List.tryItem i proto.Params with | Some p -> p.PType | None -> CIntT(CInt32 true)
+        let args = argTexts |> List.mapi (fun i t -> parseArgText (typeOf i) t)
+        match args |> List.choose (function | Error e -> Some e | _ -> None) with
+        | [] -> callFunction lim lines proto (args |> List.map (function | Ok a -> a | Error _ -> failwith "?")) 100000L
+                |> Result.mapError (String.concat "; ")
+        | errs -> Error(String.concat "; " errs)
+    | Error(_, e) :: _ -> Error("prototype: " + e)
+    | [] -> Error "no prototype"
+
+let expectEq what (actual : 'a) (expected : 'a) =
+    if actual = expected then [] else [ sprintf "%s = %A, expected %A" what actual expected ]
+
+let returns code args (expected : int64) (problems : int) =
+    match cCall code args with
+    | Ok(setup, res) ->
+        expectEq "outcome" res.Outcome Returned
+        @ expectEq "return value" res.ReturnValue (Some expected)
+        @ expectEq "number of problems" res.Problems.Length problems
+        @ (if res.Problems.Length <> problems then [ sprintf "problems: %A" res.Problems ] else [])
+    | Error e -> [ "call failed: " + e ]
+
+let callFails code args (fragment : string) =
+    match cCall code args with
+    | Error e when e.Contains fragment -> []
+    | Error e -> [ sprintf "error '%s' does not mention '%s'" e fragment ]
+    | Ok(_, res) -> [ sprintf "expected an error, got %A" res.Outcome ]
+
+let hasProblem code args (fragment : string) =
+    match cCall code args with
+    | Ok(_, res) when res.Problems |> List.exists (fun p -> p.Contains fragment) -> []
+    | Ok(_, res) -> [ sprintf "no problem mentioning '%s' in %A" fragment res.Problems ]
+    | Error e -> [ "call failed: " + e ]
+
+let protoIs txt (expected : string) =
+    match parsePrototype 1 txt with
+    | Ok p ->
+        let shown = sprintf "%s %s(%s)" (typeName p.Ret) p.FName (p.Params |> List.map (fun q -> typeName q.PType + " " + q.PName) |> String.concat ", ")
+        expectEq "prototype" shown expected
+    | Error e -> [ "parse failed: " + e ]
+
+let protoFails txt (fragment : string) =
+    match parsePrototype 1 txt with
+    | Error e when e.Contains fragment -> []
+    | Error e -> [ sprintf "error '%s' does not mention '%s'" e fragment ]
+    | Ok p -> [ sprintf "expected an error, parsed %A" p ]
+
+let sumArray = """@ C: extern int sum_array(const int *a, int n);
+    .global sum_array
+sum_array:
+    mov r2, #0
+1:  ldr r3, [r0], #4
+    add r2, r2, r3
+    subs r1, r1, #1
+    bne 1b
+    mov r0, r2
+    bx lr"""
+
+let cTests : (string * (unit -> string list)) list = [
+    "prototype: pointer and value", fun () -> protoIs "extern int sum_array(const int *a, int n);" "int sum_array(const int * a, int n)"
+    "prototype: (void), unnamed, char/short/unsigned", fun () ->
+        protoIs "unsigned char g(char, signed char c, short s, unsigned u, uint16_t w)" "char g(char arg1, signed char c, short s, unsigned int u, unsigned short w)"
+        @ protoIs "void f(void)" "void f()"
+    "prototype: arrays, pointer to pointer, return pointer", fun () ->
+        protoIs "int *h(int a[], char **argv, const char *const s)" "int * h(int * a, char * * argv, const char * s)"
+    "prototype: double rejected", fun () -> protoFails "double f(int x)" "no FPU"
+    "prototype: long long rejected", fun () -> protoFails "long long f(int x)" "64-bit"
+    "prototype: varargs rejected", fun () -> protoFails "int printf(const char *fmt, ...)" "variadic"
+    "prototype: struct rejected", fun () -> protoFails "int f(struct point p)" "struct"
+    "prototype: function pointer rejected", fun () -> protoFails "int f(int (*cb)(int))" "function pointer"
+    "prototype: not a prototype", fun () -> protoFails "int x;" "prototype"
+    "find @ C: prototypes", fun () ->
+        let found = findPrototypes (srcLines "@ C: int a(int);\nmov r0, #1\n@ c: void b(void)\n@ not one")
+        expectEq "count" found.Length 2
+        @ (match found with | [ Ok p1; Ok p2 ] -> expectEq "names" (p1.FName, p1.Line, p2.FName, p2.Line) ("a", 1, "b", 3) | _ -> [ "bad parse" ])
+
+    "call: sum_array({10, 20, 30, -5}, 4)", fun () -> returns sumArray [ "{10, 20, 30, -5}"; "4" ] 55L 0
+    "call: array buffer is in the caller area, n in r1", fun () ->
+        match cCall sumArray [ "{1, 2}"; "2" ] with
+        | Ok(setup, _) -> expectEq "argument words" setup.ArgWords [ callerArea; 2u ]
+        | Error e -> [ e ]
+    "call: not .global warns", fun () ->
+        hasProblem "@ C: int one(void)\none:\nmov r0, #1\nbx lr" [] "not declared .global"
+    "call: undefined function", fun () -> callFails "@ C: int nothere(int x)\nmov r0, #1" [ "1" ] "undefined reference to `nothere'"
+    "call: data label is not a function", fun () -> callFails "@ C: int d(void)\n.data\nd: .word 1" [] "data label"
+    "call: wrong argument count", fun () -> callFails sumArray [ "{1}" ] "takes 2 argument(s)"
+    "call: value out of range", fun () -> callFails "@ C: int f(signed char c)\n.global f\nf: bx lr" [ "200" ] "does not fit"
+    "call: negative to unsigned rejected", fun () -> callFails "@ C: int f(unsigned u)\n.global f\nf: bx lr" [ "-1" ] "unsigned"
+    "call: string for int * rejected", fun () -> callFails sumArray [ "\"ab\""; "2" ] "char *"
+
+    "call: char and short are extended in registers", fun () ->
+        let code = "@ C: int f(signed char c, short s, unsigned char u, unsigned short w)\n.global f\nf: bx lr"
+        match cCall code [ "-1"; "-2"; "200"; "0xFFFF" ] with
+        | Ok(setup, _) -> expectEq "argument words" setup.ArgWords [ 0xFFFFFFFFu; 0xFFFFFFFEu; 200u; 0xFFFFu ]
+        | Error e -> [ e ]
+    "call: char literal argument", fun () -> returns "@ C: int id(char c)\n.global id\nid: bx lr" [ "'A'" ] 65L 0
+    "call: signed return decoded", fun () -> returns "@ C: int neg(int x)\n.global neg\nneg: rsb r0, r0, #0\nbx lr" [ "5" ] -5L 0
+    "call: unsigned return decoded", fun () -> returns "@ C: unsigned big(void)\n.global big\nbig: mvn r0, #0\nbx lr" [] 4294967295L 0
+
+    "call: string argument (strlen)", fun () ->
+        returns """@ C: int my_strlen(const char *s);
+                   .global my_strlen
+                   my_strlen:
+                   mov r1, r0
+                   1: ldrb r2, [r1], #1
+                   cmp r2, #0
+                   bne 1b
+                   sub r0, r1, r0
+                   sub r0, r0, #1
+                   bx lr""" [ "\"hello\"" ] 5L 0
+
+    "call: output buffer [4] filled with squares", fun () ->
+        let code = """@ C: void squares(int *out, int n)
+                      .global squares
+                      squares:
+                      mov r2, #0
+                      1: mul r3, r2, r2
+                      str r3, [r0], #4
+                      add r2, r2, #1
+                      cmp r2, r1
+                      blt 1b
+                      bx lr"""
+        match cCall code [ "[4]"; "4" ] with
+        | Ok(_, res) ->
+            match res.BufferResults with
+            | [ br ] -> expectEq "buffer" br.After [ 0L; 1L; 4L; 9L ] @ expectEq "changed" br.Changed [ 1; 2; 3 ] @ expectEq "return" res.ReturnText "void"
+            | _ -> [ "expected one buffer" ]
+        | Error e -> [ e ]
+
+    "call: six arguments, two on the stack", fun () ->
+        let code = """@ C: int sum6(int a, int b, int c, int d, int e, int f)
+                      .global sum6
+                      sum6:
+                      add r0, r0, r1
+                      add r0, r0, r2
+                      add r0, r0, r3
+                      ldr r1, [sp]
+                      add r0, r0, r1
+                      ldr r1, [sp, #4]
+                      add r0, r0, r1
+                      bx lr"""
+        match cCall code [ "1"; "2"; "3"; "4"; "5"; "6" ] with
+        | Ok(setup, res) -> expectEq "return" res.ReturnValue (Some 21L) @ expectEq "SP 8-byte aligned" (setup.SPAtCall % 8u) 0u
+        | Error e -> [ e ]
+
+    "call: r4 not preserved is reported", fun () ->
+        hasProblem "@ C: int f(int x)\n.global f\nf: mov r4, r0\nmov r0, r4\nbx lr" [ "1" ] "R4 was not preserved"
+    "call: r4 saved with push/pop is fine", fun () ->
+        returns "@ C: int f(int x)\n.global f\nf: push {r4, lr}\nmov r4, r0\nadd r0, r4, #1\npop {r4, pc}" [ "1" ] 2L 0
+    "call: SP not restored is reported", fun () ->
+        hasProblem "@ C: int f(void)\n.global f\nf: push {r0}\nbx lr" [] "SP not restored"
+    "call: unextended unsigned char result reported", fun () ->
+        hasProblem "@ C: unsigned char f(void)\n.global f\nf: mvn r0, #0\nbx lr" [] "zero-extended"
+    "call: unextended signed char result reported", fun () ->
+        hasProblem "@ C: signed char f(void)\n.global f\nf: mov r0, #0xFF\nbx lr" [] "sign-extended"
+    "call: invalid _Bool result reported", fun () ->
+        hasProblem "@ C: _Bool f(void)\n.global f\nf: mov r0, #2\nbx lr" [] "_Bool"
+    "call: writing through const pointer reported", fun () ->
+        hasProblem "@ C: void f(const int *p)\n.global f\nf: mov r1, #1\nstr r1, [r0]\nbx lr" [ "{5}" ] "const"
+
+    "call: pointer result described", fun () ->
+        let code = """@ C: int *find_max(int *a, int n)
+                      .global find_max
+                      find_max:
+                      mov r2, r0
+                      ldr r3, [r0]
+                      1: ldr r12, [r0], #4
+                      cmp r12, r3
+                      movgt r3, r12
+                      subgt r2, r0, #4
+                      subs r1, r1, #1
+                      bne 1b
+                      mov r0, r2
+                      bx lr"""
+        match cCall code [ "{10, 5, 30, 20}"; "4" ] with
+        | Ok(_, res) -> expectEq "return text" res.ReturnText "&a[2] -> 30 (0x1E)"
+        | Error e -> [ e ]
+    "call: NULL and label pointer arguments", fun () ->
+        let code = "@ C: int f(int *p, int *q)\n.global f\nf: mov r0, r1\nbx lr\n.data\ntable: .word 7"
+        match cCall code [ "NULL"; "table" ] with
+        | Ok(setup, res) ->
+            expectEq "first word" setup.ArgWords.[0] 0u
+            @ (match setup.Run.st |> Map.tryFind "table" with
+               | Some(addr, _) -> expectEq "second word" setup.ArgWords.[1] addr
+               | None -> [ "no table symbol" ])
+        | Error e -> [ e ]
+    "call: infinite loop hits step limit", fun () ->
+        match cCall "@ C: void spin(void)\n.global spin\nspin: b spin" [] with
+        | Ok(_, { Outcome = StepLimit _ }) -> []
+        | Ok(_, res) -> [ sprintf "outcome %A" res.Outcome ]
+        | Error e -> [ e ]
+    "call: running off the end of the code is reported", fun () ->
+        match cCall "@ C: int f(void)\n.global f\nf: mov r0, #1" [] with
+        | Ok(_, { Outcome = RanOffEnd }) -> []
+        | Ok(_, res) -> [ sprintf "outcome %A" res.Outcome ]
+        | Error e -> [ e ]
+    "call: formatted summary", fun () ->
+        match cCall sumArray [ "{1, 2, 3}"; "3" ] with
+        | Ok(setup, res) -> expectEq "summary" (formatCall setup res) [ "sum_array(a=&a[0], n=3)"; "  returned 6 (0x6)"; "  a[3]: {1, 2, 3}" ]
+        | Error e -> [ e ]
+]
+
 [<EntryPoint>]
 let main _ =
     let mutable failed = 0
     for (name, code, expects) in allTests do
         match run code with
         | Error e when expects = [ ParseError ] && e.StartsWith "parse errors" -> printfn "pass %s" name
-        | Error e when expects = [ RunError ] && e.StartsWith "run error" -> printfn "pass %s" name
+        | Error e when expects = [ Expect.RunError ] && e.StartsWith "run error" -> printfn "pass %s" name
         | Error e ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name e
@@ -751,5 +964,12 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    printfn "%d/%d passed" (allTests.Length - failed) allTests.Length
+    for (name, test) in cTests do
+        match (try test () with e -> [ "exception: " + e.Message ]) with
+        | [] -> printfn "pass %s" name
+        | errs ->
+            failed <- failed + 1
+            printfn "FAIL %s: %s" name (String.concat "; " errs)
+    let total = allTests.Length + cTests.Length
+    printfn "%d/%d passed" (total - failed) total
     if failed = 0 then 0 else 1

@@ -53,10 +53,9 @@ module Expressions
     type Resolvable = Result<uint32, ParseError>
 
 
-    /// Evaluate exp against the symbol table syms.
-    /// Arithmetic is done in 64 bits, like GNU as, then truncated to 32 bits.
-    /// Returns a list of all errors or the result
-    let eval (syms : Map<string, uint32>) exp : Result<uint32, ErrCode> =
+    /// Evaluate exp against the symbol table syms in 64-bit arithmetic, like GNU as.
+    /// Returns a list of all errors or the (untruncated) result
+    let evalI64 (syms : Map<string, uint32>) exp : Result<int64, ErrCode> =
         let joinErrors a b =
             match a, b with
             | ``Undefined symbol`` a', ``Undefined symbol`` b' ->
@@ -98,7 +97,11 @@ module Expressions
                 | Error a, Error b -> joinErrors a b
                 | Error a, _ -> Error a
                 | _, Error b -> Error b
-        eval' exp |> Result.map (fun v -> uint32 (v &&& 0xFFFFFFFFL))
+        eval' exp
+
+    /// Evaluate exp against the symbol table syms: 64-bit arithmetic truncated to 32 bits
+    let eval (syms : Map<string, uint32>) exp : Result<uint32, ErrCode> =
+        evalI64 syms exp |> Result.map (fun v -> uint32 (v &&& 0xFFFFFFFFL))
 
 
     /// Value of a backslash escape in a string or character literal (GNU as rules)

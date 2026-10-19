@@ -18,6 +18,7 @@
     <Compile Include="Misc.fs" />
     <Compile Include="ParseTop.fs" />
     <Compile Include="ExecutionTop.fs" />
+    <Compile Include="CCall.fs" />
     <Compile Include="Testlib.fs" />
   </ItemGroup>
   <ItemGroup>
