@@ -90,68 +90,47 @@ module ParseTop
 
 
 
-    let parseLine (symtab : SymbolTable) (loadI : uint32, loadD : uint32) (asmLine : string) =
-        let isDataOp (op : string) = List.contains (op.ToUpper()) [ "DCD"; "DCB"; "FILL" ]
+    /// VFP/NEON floating point mnemonics, e.g. VADD.F32, vldr, VPUSHEQ
+    let isVfpOpCode (opc : string) =
+        let o = opc.ToUpper()
+        [ "VADD"; "VSUB"; "VMUL"; "VDIV"; "VMLA"; "VMLS"; "VNMUL"; "VNMLA"; "VNMLS"; "VFMA"; "VFMS"
+          "VNEG"; "VABS"; "VSQRT"; "VCMP"; "VCVT"; "VMOV"; "VMRS"; "VMSR"; "VLDR"; "VSTR"
+          "VLDM"; "VSTM"; "VPUSH"; "VPOP" ]
+        |> List.exists o.StartsWith
 
-        let isLabel (str : string) =
-            let isIdentifierChar ch = System.Char.IsLetterOrDigit ch || ch = '_'
-            // GNU as: any length, may start with '_' (e.g. L, _start)
-            str.Length > 0 && (System.Char.IsLetter str.[0] || str.[0] = '_') && Seq.forall isIdentifierChar str
+    /// The emulated CPU has no FPU (soft-float): floating point must use library calls
+    let noHardFloatError opc =
+        sprintf "'%s' is a hardware floating point (VFP) instruction. This emulator models an ARMv7 core without an FPU: use integer code or soft-float library calls" opc
+        |> ``Invalid instruction`` |> Error
 
-        /// put parameters into a LineData record and parse
-        let (|TRYPARSE|_|) (words : string list) =
-            match words with
-            | label :: opcode :: operands when label = "" || isLabel label ->
-                {
-                    OpCode = opcode.ToUpper()
-                    Operands = (String.concat " " operands).Trim()
-                    Label = match label with | "" -> None | _ -> Some label
-                    LoadAddr = (if isDataOp opcode then loadD else loadI) |> WA
-                    SymTab = symtab
-                } |> IMatch
-            | _ -> None
-
-        /// remove comments from string
-        let removeComment (txt : string) =
-            txt.Split ';'
-            |> function
-                | [| x |] -> x
-                | [||] -> ""
-                | lineWithComment -> lineWithComment.[0]
-        /// VFP/NEON floating point mnemonics, e.g. VADD.F32, vldr, VPUSHEQ
-        let isVfpOpCode (opc : string) =
-            let o = opc.ToUpper()
-            [ "VADD"; "VSUB"; "VMUL"; "VDIV"; "VMLA"; "VMLS"; "VNMUL"; "VNMLA"; "VNMLS"; "VFMA"; "VFMS"
-              "VNEG"; "VABS"; "VSQRT"; "VCMP"; "VCVT"; "VMOV"; "VMRS"; "VMSR"; "VLDR"; "VSTR"
-              "VLDM"; "VSTM"; "VPUSH"; "VPOP" ]
-            |> List.exists o.StartsWith
-        /// The emulated CPU has no FPU (soft-float): floating point must use library calls
-        let noHardFloatError opc =
-            sprintf "'%s' is a hardware floating point (VFP) instruction. This emulator models an ARMv7 core without an FPU: use integer code or soft-float library calls" opc
-            |> ``Invalid instruction`` |> Error
-        /// try to parse 1st word, or 2nd word, as opcode
-        /// If 2nd word is opcode 1st word must be label
-        let parseLine' words =
-            let defParse lab = makeParse lab (Ok loadI)
-            match [ "" ] @ words @ [ "" ] with
-                | "" :: TRYPARSE pa -> pa
-                | TRYPARSE pa -> pa
-                | [ ""; label; "" ] -> 
-                    if isLabel label 
-                    then defParse (Some label) (EMPTY |> Ok)
-                    else defParse None (``Invalid Label`` label |> Error)
-                | [ ""; "" ] -> defParse None (EMPTY |> Ok)
-                | "" :: opc :: _ when isVfpOpCode opc ->
-                    defParse None (noHardFloatError opc)
-                | "" :: _ :: opc :: _ when isVfpOpCode opc ->
-                    defParse None (noHardFloatError opc)
-                | "" :: opc :: _ ->
-                    defParse None (``Unimplemented instruction`` opc |> Error)
-                | _ -> failwithf "What: should not be possible!"
-        asmLine
-        |> removeComment
-        |> splitIntoWords
-        |> parseLine'
-
-
-
+    /// Parse one statement from the GNU front end (GnuLex)
+    let parseStmt (symtab : SymbolTable) (loadI : uint32, loadD : uint32) (st : GnuLex.Stmt) =
+        let defParse lab = makeParse lab (Ok loadI)
+        let lineData op operands = {
+                OpCode = op
+                Operands = operands
+                Label = st.Label
+                LoadAddr = (if GnuLex.dataDirectives.Contains op || GnuLex.alignDirectives.Contains op then loadD else loadI) |> WA
+                SymTab = symtab
+            }
+        match st.LexError, st.Op with
+        | Some msg, _ -> defParse None (``Invalid instruction`` msg |> Error)
+        | None, "" -> defParse st.Label (EMPTY |> Ok)
+        | None, op ->
+            match IMatch(lineData op st.Operands) with
+            | Some pa -> pa
+            | None when isVfpOpCode op -> defParse None (noHardFloatError op)
+            | None ->
+                // "loop add r0, r0, #1": a label written without its ':'
+                let words = splitIntoWords st.Operands
+                let looksLikeLabel =
+                    match words with
+                    | next :: rest ->
+                        let rest = st.Operands.Substring(st.Operands.IndexOf next + next.Length).Trim()
+                        (IMatch(lineData (next.ToUpper()) rest)).IsSome || isVfpOpCode next
+                    | [] -> false
+                if looksLikeLabel then
+                    let lab = op.ToLower()
+                    defParse None (``Invalid instruction`` (sprintf "'%s' is not an instruction. A label must end with ':' (%s:)" lab lab) |> Error)
+                else
+                    defParse None (``Unimplemented instruction`` op |> Error)

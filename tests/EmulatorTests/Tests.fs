@@ -96,7 +96,7 @@ let tests : (string * string * Expect list) list = [
               LDR R1, =DATA+8-4
               ADR R2, DATA
               SUB R3, R1, R2
-       DATA   DCD 0, 0""",
+       DATA:  .word 0, 0""",
     [ Reg (R0, 14u); Reg (R3, 4u) ]
 
     "conditional execution",
@@ -109,7 +109,7 @@ let tests : (string * string * Expect list) list = [
     "loop sums 1..10",
     """      MOV R0, #0
               MOV R1, #10
-       LOOP   ADD R0, R0, R1
+       LOOP:  ADD R0, R0, R1
               SUBS R1, R1, #1
               BNE LOOP""",
     [ Reg (R0, 55u); Reg (R1, 0u) ]
@@ -118,9 +118,9 @@ let tests : (string * string * Expect list) list = [
     """      MOV R0, #4
               BL DOUBLE
               B FIN
-       DOUBLE ADD R0, R0, R0
+       DOUBLE: ADD R0, R0, R0
               MOV PC, LR
-       FIN    MOV R1, #1""",
+       FIN:   MOV R1, #1""",
     [ Reg (R0, 8u); Reg (R1, 1u) ]
 
     "LDR/STR with data section",
@@ -130,7 +130,7 @@ let tests : (string * string * Expect list) list = [
               ADD R3, R1, R2
               STR R3, [R0, #8]
               LDR R4, [R0, #8]
-       DATA   DCD 100, 23, 0""",
+       DATA:  .word 100, 23, 0""",
     [ Reg (R3, 123u); Reg (R4, 123u) ]
 
     "LDRB / STRB",
@@ -139,14 +139,14 @@ let tests : (string * string * Expect list) list = [
               MOV R2, #0xAB
               STRB R2, [R0]
               LDR R3, [R0]
-       DATA   DCD 0x11223344""",
+       DATA:  .word 0x11223344""",
     [ Reg (R1, 0x33u); Reg (R3, 0x112233ABu) ]
 
     "post-indexed and writeback",
     """      ADR R0, DATA
               LDR R1, [R0], #4
               LDR R2, [R0, #4]!
-       DATA   DCD 1, 2, 3""",
+       DATA:  .word 1, 2, 3""",
     [ Reg (R1, 1u); Reg (R2, 3u) ]
 
     "STMFD / LDMFD stack round-trip",
@@ -166,7 +166,7 @@ let tests : (string * string * Expect list) list = [
               MOV R2, #8
               STMIA R0!, {R1, R2}
               LDMDB R0, {R3, R4}
-       DATA   FILL 8""",
+       DATA:  .space 8""",
     [ Reg (R3, 7u); Reg (R4, 8u) ]
 ]
 
@@ -339,10 +339,10 @@ let shiftTests = [
 
 let noFloatTests = [
     "VFP instruction rejected", "VADD.F32 S0, S1, S2", [ ParseError ]
-    "VFP instruction after label rejected", "LOOP vldr d0, [r1]", [ ParseError ]
+    "VFP instruction after label rejected", "LOOP: vldr d0, [r1]", [ ParseError ]
     "V-named label still allowed",
     """      B VALUE
-       VALUE  MOV R0, #1""",
+       VALUE: MOV R0, #1""",
     [ Reg (R0, 1u) ]
 ]
 
@@ -372,26 +372,26 @@ let stackTests = [
     """          MOV R4, #1
                   BL OUTER
                   B DONE
-       OUTER      PUSH {R4, LR}
+       OUTER:     PUSH {R4, LR}
                   MOV R4, #2
                   BL INNER
                   ADD R0, R0, R4
                   POP {R4, PC}
-       INNER      PUSH {R4, LR}
+       INNER:     PUSH {R4, LR}
                   MOV R4, #10
                   MOV R0, R4
                   POP {R4, PC}
-       DONE       MOV R5, R4""",
+       DONE:      MOV R5, R4""",
     [ Reg (R0, 12u); Reg (R5, 1u); Reg (R13, initStackPointer) ]
 
     "lowercase push / pop",
     """          mov r4, #7
                   bl fn
                   b done
-       fn         push {r4, lr}
+       fn:        push {r4, lr}
                   mov r4, #9
                   pop {r4, pc}
-       done       mov r0, r4""",
+       done:      mov r0, r4""",
     [ Reg (R0, 7u) ]
 
     "conditional PUSH / POP",
@@ -414,7 +414,7 @@ let stackTests = [
               LDM R0!, {R3, R4}
               ADR R5, DATA
               SUB R6, R0, R5
-       DATA   FILL 8""",
+       DATA:  .space 8""",
     [ Reg (R3, 5u); Reg (R4, 6u); Reg (R6, 8u) ]
 
     "LDRIA rejected (not a crash)", "LDRIA R0, {R1}", [ ParseError ]
@@ -440,31 +440,193 @@ let labelTests = [
     """      MOV R0, #0
               B L
               MOV R0, #99
-       L      ADD R0, R0, #1
-       X      ADR R1, D
+       L:     ADD R0, R0, #1
+       X:     ADR R1, D
               LDR R2, [R1]
-       D      DCD 7""",
+       D:     .word 7""",
     [ Reg (R0, 1u); Reg (R2, 7u) ]
 
     "single-letter label in loop and expression",
     """      MOV R0, #3
-       A      SUBS R0, R0, #1
+       A:     SUBS R0, R0, #1
               BNE A
               LDR R1, =N+1
-       N      EQU 4""",
+       .equ N, 4""",
     [ Reg (R0, 0u); Reg (R1, 5u) ]
 
     "underscore labels (_start)",
-    """_start  MOV R0, #1
+    """_start: MOV R0, #1
                B _end
                MOV R0, #2
-       _end    MOV R1, R0""",
+       _end:   MOV R1, R0""",
     [ Reg (R1, 1u) ]
 
     "label must not start with a digit", "1A MOV R0, #1", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests
+let gnuSyntaxTests = [
+    "bare B is an instruction, never a label", "B", [ ParseError ]
+    "bare mnemonic is not a label", "MOV", [ ParseError ]
+    "label without colon rejected", "loop add r0, r0, #1", [ ParseError ]
+    "single letter label with colon",
+    """b: mov r0, #1
+       b c
+       mov r0, #2
+       c: mov r1, r0""",
+    [ Reg (R1, 1u) ]
+
+    "comments and ; separators",
+    """# preprocessor-style comment line
+       mov r0, #1 @ ARM comment
+       mov r1, #2 // C++ comment
+       /* block
+          comment mov r0, #99 */ mov r2, #3
+       mov r3, #4; mov r4, #5 @ two statements""",
+    [ Reg (R0, 1u); Reg (R1, 2u); Reg (R2, 3u); Reg (R3, 4u); Reg (R4, 5u) ]
+
+    "several labels, label on its own line",
+    """    b two
+       one:
+       two: three:
+           mov r0, #7
+           ldr r1, =one
+           ldr r2, =three""",
+    [ Reg (R0, 7u); Reg (R1, 4u); Reg (R2, 4u) ]
+
+    "numeric local labels 1b / 1f, reused",
+    """    mov r0, #0
+           mov r1, #3
+       1:  add r0, r0, #1
+           subs r1, r1, #1
+           bne 1b
+           b 1f
+           mov r0, #99
+       1:  mov r2, #2
+       2:  subs r2, r2, #1
+           bne 2b""",
+    [ Reg (R0, 3u); Reg (R2, 0u) ]
+
+    "sections, .asciz, .bss",
+    """    .text
+           ldr r0, =msg
+           ldrb r1, [r0]
+           ldrb r2, [r0, #2]
+           ldr r3, =buf
+           ldr r4, [r3]
+           .data
+       msg: .asciz "hi"
+           .bss
+       buf: .space 8""",
+    [ Reg (R1, uint32 'h'); Reg (R2, 0u); Reg (R4, 0u) ]
+
+    "strings keep ; and @, escapes",
+    """    ldr r0, =s
+           ldrb r1, [r0, #1]
+           ldrb r2, [r0, #3]
+           ldrb r3, [r0, #4]
+           .data
+       s: .ascii "a;b@\n"
+       e: .word e - s""",
+    [ Reg (R1, uint32 ';'); Reg (R2, uint32 '@'); Reg (R3, 10u) ]
+
+    ".byte / .hword packing, .align, forward .word refs",
+    """    ldr r0, =b
+           ldr r1, [r0]
+           ldr r2, =w
+           ldr r3, [r2]
+           ldr r4, =tbl
+           ldr r5, [r4, #4]
+           .data
+       b:  .byte 1, 2, 3, -1
+           .hword 0x1234
+           .align 2
+       w:  .word 5
+       tbl: .word w, b""",
+    [ Reg (R1, 0xFF030201u); Reg (R3, 5u); Reg (R5, 0x200u) ]
+
+    ".equ / .set / = and GNU expression operators",
+    """    .equ SIZE, 1 << 4
+           .set MASK, SIZE - 1
+           LIMIT = (SIZE | 3) * 2
+           mov r0, #MASK
+           ldr r1, =LIMIT
+           mov r2, #10 / 3
+           mov r3, #10 % 3
+           mvn r4, #~0xFF
+           mov r5, #010
+           mov r6, #'A'
+           mov r7, #'\n'
+           mov r8, #2 + 3 * 4""",
+    [ Reg (R0, 15u); Reg (R1, 38u); Reg (R2, 3u); Reg (R3, 1u); Reg (R4, 0xFFu)
+      Reg (R5, 8u); Reg (R6, 65u); Reg (R7, 10u); Reg (R8, 14u) ]
+
+    "register aliases fp ip sl sb a1 v1",
+    """    mov fp, #11
+           mov ip, #12
+           mov sl, #10
+           mov sb, #9
+           mov a1, #1
+           mov v1, #4
+           push {fp, ip}
+           pop {a2, a3}""",
+    [ Reg (R11, 11u); Reg (R12, 12u); Reg (R10, 10u); Reg (R9, 9u); Reg (R0, 1u); Reg (R4, 4u)
+      Reg (R1, 11u); Reg (R2, 12u) ]
+
+    ".align in .text pads with nops",
+    """    mov r0, #1
+           .align 3
+       x:  mov r1, #2
+           ldr r2, =x""",
+    [ Reg (R0, 1u); Reg (R1, 2u); Reg (R2, 8u) ]
+
+    "C-callable function with gcc boilerplate",
+    """    .syntax unified
+           .arch armv7-a
+           .arm
+           .text
+           .global _start
+       _start:
+           ldr r0, =arr
+           mov r1, #4
+           bl sum_array
+           b done
+
+           .global sum_array
+           .type sum_array, %function
+       sum_array:              @ r0 = int *a, r1 = n
+           .fnstart
+           push {r4, lr}
+           mov r2, #0
+       1:  ldr r3, [r0], #4
+           add r2, r2, r3
+           subs r1, r1, #1
+           bne 1b
+           mov r0, r2
+           pop {r4, pc}
+           .fnend
+           .size sum_array, .-sum_array
+       done:
+           .data
+       arr: .word 10, 20, 30, -5
+           .section .note.GNU-stack,"",%progbits""",
+    [ Reg (R0, 55u); Reg (R13, initStackPointer) ]
+
+    "instruction in .data rejected", ".data\nmov r0, #1", [ ParseError ]
+    "DCD rejected (armasm)", "x: DCD 1", [ ParseError ]
+    "EQU rejected (armasm)", "X EQU 4", [ ParseError ]
+    "unknown directive rejected", ".frobnicate 3", [ ParseError ]
+    "Thumb rejected", ".thumb", [ ParseError ]
+    ".syntax divided rejected", ".syntax divided", [ ParseError ]
+    "unterminated string rejected", ".data\ns: .ascii \"abc", [ ParseError ]
+    ".byte out of range rejected", ".data\nb: .byte 300", [ ParseError ]
+    "1b with no earlier 1: rejected", "b 1b", [ ParseError ]
+    "1f with no later 1: rejected", "1: b 1f", [ ParseError ]
+    "invalid label name rejected", "9x: mov r0, #1", [ ParseError ]
+    "unterminated block comment rejected", "mov r0, #1 /* oops", [ ParseError ]
+    "garbage after expression rejected", "mov r0, #3 4", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests
 
 [<EntryPoint>]
 let main _ =

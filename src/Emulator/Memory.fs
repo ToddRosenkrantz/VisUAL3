@@ -274,8 +274,8 @@ module Memory
             /// For matching the list of regs
             let (|RegListMatch|_|) (str : string) =
                 match str.ToUpper() with
-                | ParseRegex "([rR][0-9]+|PC|LR|SP)}" address -> address |> Some
-                | ParseRegex "\[([rR][0-9]+|PC|LR|SP)" address -> address |> Some
+                | ParseRegex "([A-Z]+[0-9]*)}" address -> address |> Some
+                | ParseRegex "\[([A-Z]+[0-9]*)" address -> address |> Some
                 | _ -> None
 
             /// Regex match the numbers in a hyphen list {r1 - r7}
@@ -283,7 +283,7 @@ module Memory
             /// return the two numbers as low, high
             let (|RegListExpand|_|) (str : string) =
                 match str.ToUpper() with
-                | ParseRegex2 "(R[0-9]+|PC|LR|SP)-(R[0-9]+|PC|LR|SP)" (low, high) when regNames.ContainsKey low && regNames.ContainsKey high ->
+                | ParseRegex2 "([A-Z]+[0-9]*)-([A-Z]+[0-9]*)" (low, high) when regNames.ContainsKey low && regNames.ContainsKey high ->
                     (regNums.[regNames.[low]], regNums.[regNames.[high]]) |> Some
                 | _ -> None
 
@@ -303,9 +303,9 @@ module Memory
                     [ n ] |> Some
 
                 match str.ToUpper() with
-                | ParseRegex "(([rR][0-9]+|PC|LR|SP)-([rR][0-9]+|PC|LR|SP))" listReg -> optionNumToRegList listReg
-                | ParseRegex "([rR][0-9]+|PC|LR|SP)!" bangReg -> bangReg |> optionMakeList
-                | ParseRegex "([rR][0-9]+|PC|LR|SP)" reg -> reg |> optionMakeList
+                | ParseRegex "(([A-Z]+[0-9]*)-([A-Z]+[0-9]*))" listReg -> optionNumToRegList listReg
+                | ParseRegex "([A-Z]+[0-9]*)!" bangReg -> bangReg |> optionMakeList
+                | ParseRegex "([A-Z]+[0-9]*)" reg -> reg |> optionMakeList
                 | _ -> None
 
             /// split the operands at a {

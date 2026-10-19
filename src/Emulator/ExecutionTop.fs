@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.ExecutionTop
@@ -245,7 +245,19 @@ let addWordDataListToMem (dStart : uint32) (mm : DataMemory) (dl : Data list) =
     |> List.fold folder mm
 
 
-let loadLine (lim : LoadImage) ((line, lineNum) : string * int) =
+/// Write bytes into word-organised data memory starting at any byte address (little-endian)
+let addBytesToMem (start : uint32) (mm : DataMemory) (bytes : uint32 list) =
+    let folder (mm : DataMemory) (i, b : uint32) =
+        let a = start + uint32 i
+        let wa = WA(a &&& 0xFFFFFFFCu)
+        let shift = int (a &&& 3u) * 8
+        let old = match Map.tryFind wa mm with | Some(Dat d) -> d | _ -> 0u
+        let w = (old &&& ~~~(0xFFu <<< shift)) ||| ((b &&& 0xFFu) <<< shift)
+        Map.add wa (Dat(w >>> 0)) mm
+    bytes |> List.indexed |> List.fold folder mm
+
+let loadLine (lim : LoadImage) (st : GnuLex.Stmt) =
+    let lineNum = st.LineNum
     let addSymbol sym typ symList = (sym, typ, lineNum) :: symList
     match lim.LoadP.PosD with
     | None ->
@@ -254,12 +266,12 @@ let loadLine (lim : LoadImage) ((line, lineNum) : string * int) =
                 lim.SymInf with Unresolved = ("_FILL_UNDEFINED", DataSymbol, 0) :: lim.SymInf.Unresolved
         } } // short-circuit parse
     | Some posD ->
-        let pa = parseLine lim.SymInf.SymTab (lim.LoadP.PosI, posD) line
+        let pa = parseStmt lim.SymInf.SymTab (lim.LoadP.PosI, posD) st
         let labType =
             match pa.PInstr with
             | Ok EMPTY -> CodeSymbol
             | Ok(IMISC(EQU _)) -> CalculatedSymbol
-            | Ok(IMISC(DCD _)) | Ok(IMISC(DCB _)) | Ok(IMISC(FILL _)) -> DataSymbol
+            | Ok(IMISC(DCD _)) | Ok(IMISC(DCB _)) | Ok(IMISC(FILL _)) | Ok(IMISC(BYTES _)) -> DataSymbol
             | _ -> CodeSymbol
         let si' =
             let si = lim.SymInf
@@ -296,8 +308,10 @@ let loadLine (lim : LoadImage) ((line, lineNum) : string * int) =
             match pa.ISize, pa.DSize with
             | 0u, Some 0u -> lim.Mem, lim.Code
             | 0u, Some _ ->
-                //printfn "makeLoc output: %A" (makeLocD pa)
-                addWordDataListToMem posD lim.Mem (makeLocD pa), lim.Code
+                match pa.PInstr with
+                | Ok(IMISC(BYTES bytes)) -> addBytesToMem posD lim.Mem bytes, lim.Code
+                | Ok _ -> addWordDataListToMem posD lim.Mem (makeLocD pa), lim.Code
+                | Error _ -> lim.Mem, lim.Code // keep the size so later addresses are stable
             | 0u, None -> lim.Mem, lim.Code
             | 4u, Some 0u ->
                     match pa.PInstr with
@@ -327,8 +341,8 @@ let addTermination (lim : LoadImage) =
     let insLst = Map.toList lim.Code |> List.sortByDescending fst
     match insLst with
     | (_, ({ Cond = Cal; InsExec = IBRANCH END; InsOpCode = "END" }, _)) :: _ -> lim
-    | [] -> loadLine lim ("END", 1)
-    | _ -> loadLine lim ("END", -1) // used if no line for END
+    | [] -> loadLine lim (GnuLex.makeStmt 1 None "END" "")
+    | _ -> loadLine lim (GnuLex.makeStmt -1 None "END" "") // used if no line for END
 
 /// loadProgram creates a new loadImage from the symbol table in the 
 /// old loadImage and the pogram text in lines.
@@ -336,7 +350,7 @@ let addTermination (lim : LoadImage) =
 /// each time loadProgram is called the initial symbol table contains
 /// more defined symbols. Calls continue until no more symbols 
 /// can be defined
-let loadProgram (lines : string list) (lim : LoadImage) =
+let loadProgram (stmts : GnuLex.Stmt list) (lim : LoadImage) =
     let roundUpHBound n =
         let blkSize = dataSectionAlignment
         match n / blkSize, int n % int blkSize with
@@ -346,7 +360,7 @@ let loadProgram (lines : string list) (lim : LoadImage) =
     //printfn "POSI= %A" lim.LoadP
     let setDStart lim = { lim with LoadP = { lim.LoadP with DStart = roundUpHBound lim.LoadP.PosI } }
     let initLim = initLoadImage (setDStart lim).LoadP.DStart lim.SymInf.SymTab
-    List.fold loadLine initLim (lines |> List.indexed |> List.map (fun (i, s) -> s, i + 1))
+    List.fold loadLine initLim stmts
     |> addTermination
 
 /// Returns the program in lines with nice uniform indentation
@@ -413,7 +427,7 @@ let reLoadProgram (lines : string list) =
                 List.fold addCodeMark (lim.Mem) (lim.Code |> Map.toList)
                 |> (fun markedMem -> { lim with Mem = markedMem })
         let lim1 = initLoadImage dataSectionAlignment ([] |> Map.ofList)
-        let next = loadProgram lines
+        let next = loadProgram (GnuLex.lexProgram lines)
         let unres lim = lim.SymInf.Unresolved |> List.length
         let errs lim = lim.Errors |> List.map (fun (e, n, opc) -> n)
         let rec pass lim1 lim2 =
@@ -428,7 +442,7 @@ let reLoadProgram (lines : string list) =
             pass lim1 (next lim1)
             |> next
             |> addCodeMarkers
-        let src = indentProgram final lines
+        let src = lines // GNU source is shown as written
         let lim = { final with Source = src; EditorText = lines; Errors = (findDuplicateSymbols final) @ final.Errors }
         lim
     cacheLastN 10 reLoadProgram' lines

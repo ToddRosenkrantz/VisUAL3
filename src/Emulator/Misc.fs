@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.Misc
@@ -26,6 +26,7 @@ module Misc
         | FILL of FILLInstr
         | EQU of uint32
         | ADR of ADRInstr
+        | BYTES of uint32 list // GNU data directives: bytes stored from the load address
 
     let miscRoots = [ "DCD"; "DCB"; "FILL"; "EQU"; "ADR" ]
 
@@ -64,6 +65,82 @@ module Misc
         |> mergeResults
 
 
+
+    /// Largest block a single data directive may allocate
+    let maxDataBytes = 0x100000u
+
+    /// GNU as data and alignment directives (.word, .byte, .ascii, .space, .align, ...).
+    /// The load address is the current data address; data is stored little-endian.
+    let parseGnuData (ls : LineData) : Parse<Instr> =
+        let (WA la) = ls.LoadAddr
+        let op = ls.OpCode
+        let lop = op.ToLower()
+        let args = GnuLex.splitArgs ls.Operands
+        let evalArg a = parseNumExpr ls a
+        let directive dSize res =
+            { copyDefault ls Cal with PInstr = Result.map BYTES res; ISize = 0u; DSize = dSize }
+        let err dSize msg = directive dSize (makeInstructionError msg)
+        let le size (v : uint32) = List.init size (fun i -> (v >>> (8 * i)) &&& 0xFFu)
+        /// value fits in size bytes, signed or unsigned
+        let fits size (v : uint32) =
+            match size with
+            | 1 -> v <= 0xFFu || v >= 0xFFFFFF80u
+            | 2 -> v <= 0xFFFFu || v >= 0xFFFF8000u
+            | _ -> true
+        let values size =
+            let dSize = Some(uint32 (args.Length * size))
+            args
+            |> List.map (fun a ->
+                evalArg a |> Result.bind (fun v ->
+                    if fits size v then Ok v
+                    else makeInstructionError (sprintf "%s value '%s' (= %d) does not fit in %d byte(s)" lop a (int v) size)))
+            |> mergeResults
+            |> Result.map (List.collect (le size))
+            |> directive dSize
+        let byteArg (a : string option) =
+            match a with
+            | None -> Ok 0u
+            | Some a ->
+                evalArg a |> Result.bind (fun f ->
+                    if fits 1 f then Ok(f &&& 0xFFu) else makeInstructionError (sprintf "Fill value '%s' must be a byte" a))
+        match op with
+        | ".WORD" | ".LONG" | ".INT" | ".4BYTE" -> values 4
+        | ".HWORD" | ".SHORT" | ".2BYTE" -> values 2
+        | ".BYTE" -> values 1
+        | ".ASCII" | ".ASCIZ" | ".STRING" ->
+            let terminator = if op = ".ASCII" then [] else [ 0u ]
+            match args |> List.map GnuLex.parseStringLiteral |> mergeResults with
+            | _ when args.IsEmpty -> err (Some 0u) (sprintf "%s needs a string operand" lop)
+            | Ok strs ->
+                let bytes = strs |> List.collect (fun b -> b @ terminator)
+                directive (Some(uint32 bytes.Length)) (Ok bytes)
+            | Error msg -> err (Some 0u) msg
+        | ".SPACE" | ".SKIP" | ".ZERO" ->
+            match args with
+            | [ n ] | [ n; _ ] when op <> ".ZERO" || args.Length = 1 ->
+                let fill = byteArg (List.tryItem 1 args)
+                match evalArg n, fill with
+                | Ok n, _ when n > maxDataBytes -> err (Some 0u) (sprintf "%s %d is too large (max %d bytes)" lop n maxDataBytes)
+                | Ok n, Ok f -> directive (Some n) (Ok(List.replicate (int n) f))
+                | Ok n, Error e -> directive (Some n) (Error e)
+                | Error e, _ -> directive None (Error e)
+            | _ -> err (Some 0u) (if op = ".ZERO" then ".zero needs one operand: .zero size" else sprintf "Usage: %s size[, fill]" lop)
+        | ".FILL" ->
+            let get i dflt = match List.tryItem i args with | Some a -> evalArg a | None -> Ok dflt
+            match get 0 0u, get 1 1u, get 2 0u with
+            | _ when args.IsEmpty || args.Length > 3 -> err (Some 0u) "Usage: .fill repeat[, size[, value]]"
+            | Ok _, Ok sz, _ when sz <> 1u && sz <> 2u && sz <> 4u -> err (Some 0u) ".fill size must be 1, 2 or 4"
+            | Ok r, Ok sz, _ when r * sz > maxDataBytes -> err (Some 0u) (sprintf ".fill is too large (max %d bytes)" maxDataBytes)
+            | Ok r, Ok sz, Ok v -> directive (Some(r * sz)) (Ok(List.replicate (int r) (le (int sz) v) |> List.concat))
+            | Ok r, Ok sz, Error e -> directive (Some(r * sz)) (Error e)
+            | Error e, _, _ | _, Error e, _ -> directive None (Error e)
+        | _ -> // .align / .p2align / .balign
+            match GnuLex.alignBytes op ls.Operands, byteArg (List.tryItem 1 args) with
+            | Ok a, Ok f ->
+                let pad = (a - la % a) % a
+                directive (Some pad) (Ok(List.replicate (int pad) f))
+            | Ok _, Error e -> directive (Some 0u) (Error e)
+            | Error msg, _ -> err (Some 0u) msg
 
     let parse (ls : LineData) : Parse<Instr> =
         let (WA la) = ls.LoadAddr // address this instruction is loaded into memory
@@ -148,7 +225,9 @@ module Misc
 
     /// Parse Active Pattern used by top-level code
     let (|IMatch|_|) (ls : LineData) =
-        if List.contains ls.OpCode miscRoots
+        if GnuLex.dataDirectives.Contains ls.OpCode || GnuLex.alignDirectives.Contains ls.OpCode
+        then parseGnuData ls |> Some
+        elif List.contains ls.OpCode miscRoots
         then
             //printfn "IMISC Parsing '%s'" ls.OpCode
             parse ls |> Some

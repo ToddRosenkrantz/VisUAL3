@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.Branch
@@ -35,6 +35,8 @@ module Branch
             let (WA la) = ls.LoadAddr // address this instruction is loaded into memory
             let target = parseEvalNumericExpression ls.SymTab ls.Operands
             match root, target with
+            | ("B" | "BL"), _ when ls.Operands.Trim() = "" ->
+                makeParseError (sprintf "%s target label (e.g. %s loop)" (ls.OpCode.ToLower()) (ls.OpCode.ToLower())) "nothing" ""
             | "B", Ok t -> B t |> Ok
             | "BL", Ok t -> BL t |> Ok
             | "B", Error t

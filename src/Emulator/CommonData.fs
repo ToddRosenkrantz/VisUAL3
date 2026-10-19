@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.CommonData
@@ -35,6 +35,10 @@ module CommonData
             "R6", R6; "R7", R7; "R8", R8; "R9", R9; "R10", R10; "R11", R11;
             "R12", R12; "R13", R13; "R14", R14; "R15", R15;
             "PC", R15; "LR", R14; "SP", R13
+            // GNU as / APCS aliases
+            "IP", R12; "FP", R11; "SL", R10; "SB", R9
+            "A1", R0; "A2", R1; "A3", R2; "A4", R3
+            "V1", R4; "V2", R5; "V3", R6; "V4", R7; "V5", R8; "V6", R9; "V7", R10; "V8", R11
         ]
 
     // various functions used to convert between string, RName, and register number

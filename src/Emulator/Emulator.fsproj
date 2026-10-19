@@ -11,6 +11,7 @@
     <Compile Include="Expressions.fs" />
     <Compile Include="CommonLex.fs" />
     <Compile Include="Helpers.fs" />
+    <Compile Include="GnuLex.fs" />
     <Compile Include="Memory.fs" />
     <Compile Include="DP.fs" />
     <Compile Include="Branch.fs" />

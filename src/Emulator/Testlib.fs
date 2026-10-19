@@ -339,17 +339,20 @@ let checkTestResults (test : Test) (outDp : DataPath) (subRet : bool) =
 /// Return code transformed by test.
 /// Transformation is idempotent.
 let transformCodeByTest (code : string list) (test : Test) =
-    let startsWith (lab:string) (s:string) =
-       let s' = s.Trim()
-       s = lab || s.StartsWith (lab + " ") || s.StartsWith(lab + "\t") 
-    let transformHdr = ";##TRANSFORM----------code appended by testbench---------"
+    /// line defines label lab (GNU syntax: "lab:")
+    let definesLabel (lab:string) (s:string) =
+       let s' = s.TrimStart()
+       s'.StartsWith(lab + ":") || s'.StartsWith(lab + " :") || s'.StartsWith(lab + "\t:")
+    let transformHdr = "@##TRANSFORM----------code appended by testbench---------"
     if List.exists (fun s -> String.trim s = transformHdr) code then code
     else
         let labelChanges = List.collect (function | Relabel(ol, nl) -> [ ol, nl ] | _ -> []) test.Ins
         let changeLabels code (oldLab, newLab) =
-            List.map (fun lin -> if startsWith oldLab lin
-                                 then newLab + lin.[oldLab.Length..lin.Length - 1]
-                                 else lin) code
+            List.map (fun (lin : string) ->
+                if definesLabel oldLab lin then
+                    let s' = lin.TrimStart()
+                    newLab + s'.[oldLab.Length..s'.Length - 1]
+                else lin) code
         let appends =
             match test.TAppendCode with
             | [] -> []
@@ -357,9 +360,9 @@ let transformCodeByTest (code : string list) (test : Test) =
         let code' = List.fold changeLabels code labelChanges @ appends
         if code' <> code then
             let hdrComment =
-                [ "; Code modified by testbench before testing!------" ] @
-                (labelChanges |> List.map (fun (ol, nl) -> sprintf ";Testbench has changed label '%s' to '%s'" ol nl)) @
-                [ ";------student code (with label changes)----------" ]
+                [ "@ Code modified by testbench before testing!------" ] @
+                (labelChanges |> List.map (fun (ol, nl) -> sprintf "@ Testbench has changed label '%s' to '%s'" ol nl)) @
+                [ "@------student code (with label changes)----------" ]
             hdrComment @ code'
         else
             code

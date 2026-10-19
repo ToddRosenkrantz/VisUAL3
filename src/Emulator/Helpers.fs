@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.Helpers
@@ -178,7 +178,7 @@ module Helpers
     /// A partilly active pattern to extract a register name, returning it paired with the rest of the string, if possible
     let (|REGMATCH|_|) (txt' : string) =
         match txt' with
-        | ParseRegex2 @"\s*([rR][0-9]+|[Pp][Cc]|[Ss][Pp]|[Ll][Rr]|[Pp][Cc]|[Ss][Pp]|[Ll][Rr])(.*$)" (txt, TRIM rst) ->
+        | ParseRegex2 @"\s*([A-Za-z]+[0-9]*)(.*$)" (txt, TRIM rst) ->
             match Map.tryFind (txt.ToUpper()) regNames with
             | Some rn -> (Some(rn, rst))
             | None -> None
