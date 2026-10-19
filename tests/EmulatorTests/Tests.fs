@@ -11,6 +11,8 @@ type Expect =
     | Mem of uint32 * uint32
     /// the program must be rejected by the assembler
     | ParseError
+    /// memory word never written
+    | NoMem of uint32
 
 /// Assemble and run `code` (one instruction per line) to completion.
 let run (code : string) =
@@ -36,6 +38,10 @@ let check (dp : DataPath) expect =
         if (f.N, f.Z, f.C, f.V) = (n, z, c, v) then None
         else Some (sprintf "NZCV = %A, expected %A" (f.N, f.Z, f.C, f.V) (n, z, c, v))
     | ParseError -> Some "expected a parse error"
+    | NoMem a ->
+        match Map.tryFind (WA a) dp.MM with
+        | None -> None
+        | x -> Some (sprintf "[0x%X] = %A, expected unwritten" a x)
     | Mem (a, v) ->
         match Map.tryFind (WA a) dp.MM with
         | Some (Dat d) when d = v -> None
@@ -414,7 +420,51 @@ let stackTests = [
     "LDRIA rejected (not a crash)", "LDRIA R0, {R1}", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests
+let pushPreDecTests = [
+    "PUSH is pre-decrement (full descending, = STMDB SP!)",
+    """MOV R0, #0x55
+       PUSH {R0}""",
+    [ Reg (R13, initStackPointer - 4u); Mem (initStackPointer - 4u, 0x55u); NoMem initStackPointer ]
+
+    "PUSH matches STR Rx, [SP, #-4]! and POP matches LDR Rx, [SP], #4",
+    """MOV R0, #0x66
+       STR R0, [SP, #-4]!
+       POP {R1}
+       PUSH {R0}
+       LDR R2, [SP], #4""",
+    [ Reg (R1, 0x66u); Reg (R2, 0x66u); Reg (R13, initStackPointer) ]
+]
+
+let labelTests = [
+    "single-letter labels",
+    """      MOV R0, #0
+              B L
+              MOV R0, #99
+       L      ADD R0, R0, #1
+       X      ADR R1, D
+              LDR R2, [R1]
+       D      DCD 7""",
+    [ Reg (R0, 1u); Reg (R2, 7u) ]
+
+    "single-letter label in loop and expression",
+    """      MOV R0, #3
+       A      SUBS R0, R0, #1
+              BNE A
+              LDR R1, =N+1
+       N      EQU 4""",
+    [ Reg (R0, 0u); Reg (R1, 5u) ]
+
+    "underscore labels (_start)",
+    """_start  MOV R0, #1
+               B _end
+               MOV R0, #2
+       _end    MOV R1, R0""",
+    [ Reg (R1, 1u) ]
+
+    "label must not start with a digit", "1A MOV R0, #1", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests
 
 [<EntryPoint>]
 let main _ =

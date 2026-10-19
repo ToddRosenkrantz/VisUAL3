@@ -95,7 +95,8 @@ module ParseTop
 
         let isLabel (str : string) =
             let isIdentifierChar ch = System.Char.IsLetterOrDigit ch || ch = '_'
-            str.Length > 1 && System.Char.IsLetter str.[0] && Seq.forall isIdentifierChar str
+            // GNU as: any length, may start with '_' (e.g. L, _start)
+            str.Length > 0 && (System.Char.IsLetter str.[0] || str.[0] = '_') && Seq.forall isIdentifierChar str
 
         /// put parameters into a LineData record and parse
         let (|TRYPARSE|_|) (words : string list) =
