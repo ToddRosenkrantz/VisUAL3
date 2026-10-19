@@ -11,6 +11,8 @@ type Expect =
     | Mem of uint32 * uint32
     /// the program must be rejected by the assembler
     | ParseError
+    /// the program must assemble but stop with a run time error
+    | RunError
     /// memory word never written
     | NoMem of uint32
 
@@ -38,6 +40,7 @@ let check (dp : DataPath) expect =
         if (f.N, f.Z, f.C, f.V) = (n, z, c, v) then None
         else Some (sprintf "NZCV = %A, expected %A" (f.N, f.Z, f.C, f.V) (n, z, c, v))
     | ParseError -> Some "expected a parse error"
+    | RunError -> Some "expected a run time error"
     | NoMem a ->
         match Map.tryFind (WA a) dp.MM with
         | None -> None
@@ -626,7 +629,71 @@ let gnuSyntaxTests = [
     "garbage after expression rejected", "mov r0, #3 4", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests
+let branchTests = [
+    "bx lr returns from a function",
+    """_start:
+           mov r0, #5
+           bl double
+           b done
+       double:
+           add r0, r0, r0
+           bx lr
+       done:
+           mov r1, r0""",
+    [ Reg (R0, 10u); Reg (R1, 10u) ]
+
+    "nested calls: push {lr} / pop {lr} / bx lr",
+    """    mov r0, #1
+           bl f
+           b done
+       f:  push {lr}
+           bl g
+           add r0, r0, #10
+           pop {lr}
+           bx lr
+       g:  add r0, r0, #100
+           bx lr
+       done:""",
+    [ Reg (R0, 111u); Reg (R13, initStackPointer) ]
+
+    "conditional bxeq / bxne",
+    """    mov r0, #0
+           bl f
+           b done
+       f:  cmp r0, #0
+           movne r1, #1
+           bxne lr
+           mov r1, #2
+           bxeq lr
+           mov r1, #3
+       done:""",
+    [ Reg (R1, 2u) ]
+
+    "bx to computed address, BX LR upper case",
+    """    ldr r1, =target
+           BX r1
+           mov r0, #99
+       target:
+           mov r0, #7
+           BL sub
+           b done
+       sub:
+           BX LR
+       done:""",
+    [ Reg (R0, 7u) ]
+
+    "bx to odd (Thumb) address stops", "ldr r1, =t + 1\nbx r1\nt: mov r0, #1", [ RunError ]
+    "bx to halfword address stops", "ldr r1, =t + 2\nbx r1\nt: mov r0, #1", [ RunError ]
+    "bx needs a register", "bx", [ ParseError ]
+    "bx rejects a label", "t: bx t", [ ParseError ]
+    "bx rejects an immediate", "bx #4", [ ParseError ]
+    "bl to misaligned address rejected", "bl 0x102", [ ParseError ]
+    "b to misaligned address rejected", "b 2", [ ParseError ]
+    "bl to numeric address", "    b skip\n    mov r0, #1\nskip: bl 4\n", [ Reg (R0, 1u); Reg (R14, 12u) ]
+    "blx is not implemented", "blx lr", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests
 
 [<EntryPoint>]
 let main _ =
@@ -634,6 +701,7 @@ let main _ =
     for (name, code, expects) in allTests do
         match run code with
         | Error e when expects = [ ParseError ] && e.StartsWith "parse errors" -> printfn "pass %s" name
+        | Error e when expects = [ RunError ] && e.StartsWith "run error" -> printfn "pass %s" name
         | Error e ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name e

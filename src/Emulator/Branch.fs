@@ -16,14 +16,15 @@ module Branch
     type Instr =
         | B of uint32
         | BL of uint32
+        | BX of RName // target address in register: bit 0 selects Thumb (not supported)
         | END
 
-    let branchTarget = function | B t | BL t -> [ t ] | END -> []
+    let branchTarget = function | B t | BL t -> [ t ] | BX _ | END -> []
 
     // Branch instructions have no suffixes
     let branchSpec = {
         InstrC = BRANCH
-        Roots = [ "B"; "BL"; "END" ]
+        Roots = [ "B"; "BL"; "BX"; "END" ]
         Suffixes = [ "" ]
     }
 
@@ -34,11 +35,24 @@ module Branch
         let parse' (_iClass, (root, suffix, cond)) =
             let (WA la) = ls.LoadAddr // address this instruction is loaded into memory
             let target = parseEvalNumericExpression ls.SymTab ls.Operands
+            /// A32 B/BL: word-aligned target, offset from PC (+8) in -33554432..33554428
+            let checkTarget (t : uint32) =
+                let offset = int64 t - int64 (la + 8u)
+                if t % 4u <> 0u then
+                    makeParseError "word-aligned branch target" (sprintf "0x%X" t) ""
+                elif offset < -33554432L || offset > 33554428L then
+                    makeParseError "branch target within +/-32MB" (sprintf "0x%X" t) ""
+                else Ok t
             match root, target with
-            | ("B" | "BL"), _ when ls.Operands.Trim() = "" ->
-                makeParseError (sprintf "%s target label (e.g. %s loop)" (ls.OpCode.ToLower()) (ls.OpCode.ToLower())) "nothing" ""
-            | "B", Ok t -> B t |> Ok
-            | "BL", Ok t -> BL t |> Ok
+            | ("B" | "BL" | "BX"), _ when ls.Operands.Trim() = "" ->
+                let example = if root = "BX" then "register (e.g. bx lr)" else sprintf "target label (e.g. %s loop)" (root.ToLower())
+                makeParseError (sprintf "%s %s" (ls.OpCode.ToLower()) example) "nothing" ""
+            | "BX", _ ->
+                match parseRegister ls.Operands with
+                | Ok rm -> BX rm |> Ok
+                | Error _ -> makeParseError "bx register (e.g. bx lr): BX branches to an address held in a register" ls.Operands ""
+            | "B", Ok t -> checkTarget t |> Result.map B
+            | "BL", Ok t -> checkTarget t |> Result.map BL
             | "B", Error t
             | "BL", Error t -> Error t
             | "END", _ when ls.Operands = "" -> Ok END
@@ -46,7 +60,7 @@ module Branch
             | _ -> failwithf "What? Unexpected root in Branch.parse'%s'" root
             |> fun ins ->
                 copyParse ls ins cond
-                |> (fun pa -> { pa with PStall = match root with | "B" | "BL" -> 2 | _ -> 0 })
+                |> (fun pa -> { pa with PStall = match root with | "B" | "BL" | "BX" -> 2 | _ -> 0 })
         let OPC = ls.OpCode.ToUpper()
         if Map.containsKey OPC opCodes // lookup opcode to see if it is known
         then parse' opCodes.[OPC] |> Some
@@ -69,6 +83,15 @@ module Branch
             |> setReg R15 addr
             |> setReg R14 nxt
             |> Ok
+        | BX rm ->
+            let addr = cpuData.Regs.[rm]
+            let pc = getPC cpuData
+            if addr &&& 1u = 1u then
+                ``Run time error`` (pc, sprintf "BX to 0x%X: odd address would switch to Thumb state, which is not supported" addr) |> Error
+            elif addr &&& 2u = 2u then
+                ``Run time error`` (pc, sprintf "BX to 0x%X: address is not word aligned (UNPREDICTABLE in ARM state)" addr) |> Error
+            else
+                cpuData |> setReg R15 addr |> Ok
         | END ->
             EXIT |> Error
 
