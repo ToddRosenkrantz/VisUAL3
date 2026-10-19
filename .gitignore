@@ -226,3 +226,9 @@ test-results/*
 x64/
 x86/
 ~$*
+out/
+app/js/vs/
+app/js/renderer.js*
+app/js/tippy.min.js
+app/js/popper.min.js
+.ionide/

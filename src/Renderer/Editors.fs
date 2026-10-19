@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Editors
@@ -8,9 +8,12 @@
 /// Interface with monaco editor buffers
 module Editors
 
+
+open Interop
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Browser
+open Browser
+open Browser.Types
+open Browser.Dom
 open Fable.Core
 open EEExtensions
 open Refs
@@ -70,9 +73,7 @@ let updateAllEditors readOnly =
 let disableEditors() =
     Refs.fileTabMenu.classList.add ("disabled-click")
     Refs.fileTabMenu.onclick <- (fun _ ->
-        showVexAlert ("Cannot change tabs during execution")
-        createObj []
-    )
+        showVexAlert ("Cannot change tabs during execution"))
     updateEditor Refs.currentFileTabId true
     Refs.darkenOverlay.classList.remove ("invisible")
     Refs.darkenOverlay.classList.add ([| "disabled-click" |])
@@ -80,7 +81,7 @@ let disableEditors() =
 // Enable the editor once execution has completed
 let enableEditors() =
     Refs.fileTabMenu.classList.remove ("disabled-click")
-    Refs.fileTabMenu.onclick <- (fun _ -> createObj [])
+    Refs.fileTabMenu.onclick <- (fun _ -> ())
     updateEditor Refs.currentFileTabId false
     Refs.darkenOverlay.classList.add ([| "invisible" |])
 

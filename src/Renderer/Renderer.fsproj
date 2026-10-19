@@ -1,9 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Interop.fs" />
     <Compile Include="Refs.fs" />
     <Compile Include="Tooltips.fs" />
     <Compile Include="Stats.fs" />
@@ -22,5 +22,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Emulator\Emulator.fsproj" />
   </ItemGroup>
-  <Import Project="..\..\.paket\Paket.Restore.targets" />
+  <ItemGroup>
+    <PackageReference Include="Fable.Browser.Css" Version="2.5.0" />
+    <PackageReference Include="Fable.Browser.Dom" Version="2.20.0" />
+  </ItemGroup>
 </Project>

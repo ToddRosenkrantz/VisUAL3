@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Files
@@ -10,15 +10,13 @@
 module Files
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Electron
-open Node.Exports
-open Fable.PowerPack
+open Interop
 open EEExtensions
 
-open Fable.Import.Browser
+open Browser
 
-
+open Browser.Types
+open Browser.Dom
 open Refs
 open Fable
 open Settings
@@ -61,12 +59,10 @@ let resultUndefined errCase x =
     | false -> Result.Ok x
 
 let fileFilterOpts =
-    ResizeArray [
-        createObj [
+    [| createObj [
             "name" ==> "Assembly Code"
-            "extensions" ==> ResizeArray [ "s" ]
-        ]
-    ] |> Some
+            "extensions" ==> [| "s"; "S"; "asm" |]
+       ] |]
 
 let getPathElements p =
             let dir = p |> String.split [| '\\'; '/' |]
@@ -129,16 +125,15 @@ let rec saveFileAs() =
     match settingsTab with
     | Some x when x = currentFileTabId -> ()
     | _ ->
-        let options = createEmpty<SaveDialogOptions>
-        options.filters <- fileFilterOpts
+        let options = createObj [ "filters" ==> fileFilterOpts ]
         let currentPath = getTabFilePath currentFileTabId
 
         // If a path already exists for this file, open it
         match currentPath with
         | "" -> ()
-        | _ -> options.defaultPath <- Some currentPath
+        | _ -> options?defaultPath <- currentPath
 
-        let result = electron.remote.dialog.showSaveDialog (options)
+        let result = showSaveDialog options
 
         // Performs op on resPart if x is Ok resPart, then returns x
         let resultIter op x =
@@ -154,7 +149,7 @@ let rec saveFileAs() =
             | e -> e
 
         result
-        |> resultUndefined()
+        |> function | Some p -> Result.Ok p | None -> Result.Error()
         |> filterUntitled
         |> resultIter writeCurrentCodeToFile
         |> resultIter (setTabFilePath currentFileTabId)

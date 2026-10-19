@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.MenuBar
@@ -10,9 +10,7 @@ module MenuBar
 open EEExtensions
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Electron
-open Node.Base
+open Interop
 open Refs
 open Settings
 open Tabs
@@ -59,48 +57,12 @@ let interlockAction (actionName : string) (action : Unit -> Unit) = (fun () ->
  ****************************************************************************************************)
 
 
- // Popup windows
-
-let makePrefsWindow() =
-    let url = "prefs.html"
-    let mutable prefsWindow = (Core.Option.None : BrowserWindow option)
-
-    // Register click on the About menu
-
-    let options = createEmpty<BrowserWindowOptions>
-    let webPrefs = createEmpty<WebPreferences>
-    webPrefs?nativeWindowOpen <- Some true
-    options?toolbar <- Some false
-    options.resizable <- Some false
-    options.show <- Some true
-    options.height <- Some 600.
-    options.width <- Some 400.
-    options.modal <- Some true
-    options.parent <- Some(electron.remote.getCurrentWindow())
-    options.webPreferences <- Some webPrefs
-
-
-    let prefs = electron.remote.BrowserWindow.Create(options)
-    // For to remove the menu of the window
-    prefs.setMenu (unbox null)
-
-    prefs.on ("closed", unbox (fun () ->
-        // Dereference the about window object.
-        prefsWindow <- Option.None
-    )) |> ignore
-
-    prefs.loadURL (Node.Exports.path.join ("file://", Node.Globals.__dirname, url))
-
-    prefsWindow <- prefs |> Some
-
-
-
- /// Load the node Buffer into the specified tab
-let loadFileIntoTab tId (fileData : Node.Buffer.Buffer) =
+ /// Load file text into the specified tab
+let loadFileIntoTab tId (fileData : string) =
     if currentFileTabId = tId then
         Integration.resetEmulator()
     let editor = editors.[tId]
-    editor?setValue (fileData.toString ("utf8")) |> ignore
+    editor?setValue (fileData) |> ignore
     setTabSaved tId
 
 
@@ -110,11 +72,10 @@ let openListOfFiles (fLst : string list) =
         (fun tId -> Files.setTabFilePath tId path) |> ignore
         (path, tId)
     let readPath (path, tId) =
-        Node.Exports.fs.readFile (path, (fun err data -> // TODO: find out what this error does
-            loadFileIntoTab tId data
+        try
+            loadFileIntoTab tId (fs.readTextSync path)
             Files.setTabFilePath tId path
-        ))
-        |> ignore
+        with e -> showVexAlert (sprintf "Could not read %s: %s" path e.Message)
         [ tId ]
     if debugLevel > 0 then printfn "File list to open is: %A" fLst
     fLst
@@ -127,12 +88,10 @@ let openListOfFiles (fLst : string list) =
 
 
 let openFile() =
-    let options = createEmpty<OpenDialogOptions>
-    options.properties <- ResizeArray([ "openFile"; "multiSelections" ]) |> Some
-    options.filters <- Files.fileFilterOpts
-    options.defaultPath <- Some vSettings.CurrentFilePath
-    electron.remote.dialog.showOpenDialog (options)
-    |> Seq.toList
+    showOpenDialog (createObj [
+                        "properties" ==> [| "openFile"; "multiSelections" |]
+                        "filters" ==> Files.fileFilterOpts
+                        "defaultPath" ==> vSettings.CurrentFilePath ])
     |> openListOfFiles
     |> ignore
 
@@ -145,9 +104,8 @@ let loadDemo() =
     |> fun tId ->
         let sampleFileName = Tests.sampleDir + "karatsuba.s"
         printfn "Reading sample file: %s" sampleFileName
-        Node.Exports.fs.readFile (sampleFileName, (fun _ data -> // TODO: find out what this error does
-                                              loadFileIntoTab tId data
-        ))
+        try loadFileIntoTab tId (fs.readTextSync sampleFileName)
+        with e -> showVexAlert (sprintf "Could not read %s: %s" sampleFileName e.Message)
         Tabs.setTabSaved tId
 
 
@@ -161,7 +119,7 @@ let showQuitMessage (callBack : bool -> unit) =
 /// Check if there is any unsaved info. Display dialog asking for confirmation if there is.
 /// Otherwise exit.
 let ExitIfOK() =
-    let close() = electron.ipcRenderer.send "doClose" |> ignore
+    let close() = ipcSend "doClose"
     let callback (result : bool) =
         match result with
         | false -> ()
@@ -178,48 +136,49 @@ let ExitIfOK() =
  ****************************************************************************************************)
 
 
-let menuSeparator =
-    let sep = createEmpty<MenuItemOptions>
-    sep.``type`` <- Some Separator
-    sep
+/// Electron MenuItem constructor options: https://www.electronjs.org/docs/latest/api/menu-item
+type MenuItemOptions = obj
+
+/// Electron menu item roles used here
+[<RequireQualifiedAccess>]
+module MenuItemRole =
+    let Cut = "cut"
+    let Copy = "copy"
+    let Paste = "paste"
+    let Togglefullscreen = "togglefullscreen"
+    let Zoomin = "zoomIn"
+    let Zoomout = "zoomOut"
+    let Resetzoom = "resetZoom"
+
+let menuSeparator : MenuItemOptions = createObj [ "type" ==> "separator" ]
 
 /// Make action menu item from name, opt key to trigger, and action.
-let makeItem (label : string) (accelerator : string option) (iAction : unit -> unit) =
-    let handlerCaster f = System.Func<MenuItem, BrowserWindow, unit> f |> Some
-    let item = createEmpty<MenuItemOptions>
-    item.label <- Some label
-    item.accelerator <- accelerator
-    item.click <- handlerCaster (fun _ _ -> iAction())
+let makeItem (label : string) (accelerator : string option) (iAction : unit -> unit) : MenuItemOptions =
+    let item = createObj [ "label" ==> label; "click" ==> (fun () -> iAction()) ]
+    accelerator |> Option.iter (fun a -> item?accelerator <- a)
     item
 
 /// Make role menu from name, opt key to trigger, and action.
-let makeRoleItem label accelerator role =
+let makeRoleItem label accelerator (role : string) =
     let item = makeItem label accelerator id
-    item.role <- U2.Case1 role |> Some
+    item?role <- role
     item
 
 /// make conditional menu item from condition, name, opt key to trigger, and role
 let makeCondRoleItem cond label accelerator role =
-    let item = makeItem label accelerator id
-    item.role <- U2.Case1 role |> Some
-    item.visible <- Some cond
+    let item = makeRoleItem label accelerator role
+    item?visible <- cond
     item
 
 /// make conditional menu item from condition, name, opt key to trigger, and action
 let makeCondItem cond label accelerator action =
     let item = makeItem label accelerator action
-    item.visible <- Some cond
+    item?visible <- cond
     item
 
 /// Make a new menu from a a list of menu items
-let makeMenu (name : string) (table : MenuItemOptions list) =
-    let subMenu = createEmpty<MenuItemOptions>
-    subMenu.label <- Some name
-    subMenu.submenu <-
-        table
-        |> ResizeArray<MenuItemOptions>
-        |> U2.Case2 |> Some
-    subMenu
+let makeMenu (name : string) (table : MenuItemOptions list) : MenuItemOptions =
+    createObj [ "label" ==> name; "submenu" ==> List.toArray table ]
 
 
 (****************************************************************************************************
@@ -262,7 +221,7 @@ let editMenu() =
     ]
 
 let viewMenu() =
-        let devToolsKey = if Node.Globals.``process``.platform = NodeJS.Platform.Darwin then "Alt+Command+I" else "Ctrl+Shift+I"
+        let devToolsKey = if platform = "darwin" then "Alt+Command+I" else "Ctrl+Shift+I"
         makeMenu "View" [
             makeRoleItem "Toggle Fullscreen" (Some "F11") MenuItemRole.Togglefullscreen
             menuSeparator
@@ -270,7 +229,7 @@ let viewMenu() =
             makeRoleItem "Zoom Out" (Some "CmdOrCtrl+-") MenuItemRole.Zoomout
             makeRoleItem "Reset Zoom" (Some "CmdOrCtrl+0") MenuItemRole.Resetzoom
             menuSeparator
-            makeCondItem (debugLevel > 0) "Toggle Dev Tools" (Some devToolsKey) (electron.remote.getCurrentWebContents()).toggleDevTools
+            makeCondItem (debugLevel > 0) "Toggle Dev Tools" (Some devToolsKey) (fun () -> currentWebContents()?toggleDevTools () |> ignore)
         ]
 
 
@@ -278,17 +237,12 @@ let viewMenu() =
 
 
 
-let popupMenu (items) =
-    let menu = electron.remote.Menu.Create()
-    items
-    |> List.map electron.remote.MenuItem.Create
-    |> List.iter menu.append
-    menu.popup (electron.remote.getCurrentWindow())
-    ()
+let popupMenu (items : MenuItemOptions list) =
+    let menu = remote?Menu?buildFromTemplate (List.toArray items)
+    menu?popup (createObj [ "window" ==> currentWindow() ]) |> ignore
 
 let testMenu() =
         let runToBranch() = ()
-        let menu = electron.remote.Menu.Create()
         let runSteps() =
             showVexValidatedPrompt "steps forward" validPosInt (int64 >> (Integration.runEditorTab ExecutionTop.NoBreak)) "Number of steps forward"
         let runStepsBack() =
@@ -337,14 +291,5 @@ let helpMenu() =
 
 /// Make all app menus
 let mainMenu() =
-    let template =
-        ResizeArray<MenuItemOptions> [
-            fileMenu()
-            editMenu()
-            viewMenu()
-            helpMenu()
-            testMenu()
-        ]
-    template
-    |> electron.remote.Menu.buildFromTemplate
-    |> electron.remote.Menu.setApplicationMenu
+    let template = [| fileMenu(); editMenu(); viewMenu(); helpMenu(); testMenu() |]
+    remote?Menu?setApplicationMenu (remote?Menu?buildFromTemplate (template)) |> ignore

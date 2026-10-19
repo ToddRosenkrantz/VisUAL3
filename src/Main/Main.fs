@@ -1,22 +1,25 @@
-(* 
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Main.Main
     Description: Electron Main Process
 *)
 
-/// This single module is compiled to JS to make the electron main process that runs node directly on teh host PC and starts up the app.
-/// This process is also used for any native resource access (files etc) via electron IPC calls
+/// This single module is compiled to JS to make the electron main process that runs node directly on the host PC and starts up the app.
 module Main
-
-
 
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Electron
-open Node.Exports
-open System.Diagnostics
+
+let electron : obj = importAll "electron"
+let remoteMain : obj = importAll "@electron/remote/main"
+let path : obj = importAll "path"
+
+[<Emit("process.argv")>]
+let argv : string array = jsNative
+
+[<Emit("__dirname")>]
+let dirname : string = jsNative
 
 let printHelpMessage() =
     printfn """
@@ -27,170 +30,119 @@ Visual2 command line options
                 - <F12> to open or close dev tools after startup
 """
 
-let args = 
-    Fable.Import.Node.Globals.``process``.argv 
-    |> Seq.toList
-    |> List.map (fun s -> s.ToLower())
-/// returns true if any of flags are present as command line argument    
-let argFlagIsOn (flags:string list) = 
-    let fl = List.map (fun (s:string) -> s.ToLower()) flags
-    List.exists (fun flag -> List.contains flag args) fl
+let args = argv |> Seq.toList |> List.map (fun s -> s.ToLower())
 
-/// returns true if fl is recognised as valid?
-let isValidFlag fl =
-    List.contains fl ["-h";"--help";"-d";"--debug";"-w";".";]
+/// returns true if any of flags are present as command line argument
+let argFlagIsOn (flags : string list) =
+    List.exists (fun (flag : string) -> List.contains (flag.ToLower()) args) flags
 
-/// returns true if we need to disable startup and print help message
-let hasHelpArgs() =
-    argFlagIsOn ["--help";"-h"] || List.exists (fun arg -> not (isValidFlag arg)) (List.tail args)
+/// returns true if fl is recognised as valid
+let isValidFlag (fl : string) =
+    List.contains fl [ "-h"; "--help"; "-d"; "--debug"; "." ] || fl.EndsWith "electron" || fl.EndsWith ".js"
 
-if hasHelpArgs() && not (argFlagIsOn ["--help";"-h"]) then
-    printfn "Bad arguments: %A" args
- 
- /// returns true if we need to add debugging info and printout
-let hasDebugArgs() = argFlagIsOn ["--debug";"-d"]
+let hasHelpArgs() = argFlagIsOn [ "--help"; "-h" ]
 
-// Keep a global reference of the window object, if you don't, the window will
-// be closed automatically when the JavaScript object is garbage collected.
-let mutable mainWindow: BrowserWindow option = Option.None
-
-/// ensure that if app is started again the first instance is focussed and the second quits
-let shouldQuit = electron.app.makeSingleInstance( fun _ _ ->
-        // Someone tried to run a second instance, we should focus our window.
-        match  mainWindow with
-        | Some win ->  
-            if (win.isMinimized()) then
-                win.restore();
-            win.focus();
-        | Core.Option.None -> ())
-     
-if (shouldQuit) then 
-    electron.app.quit()
-
-
-// Used for right-click context menu
-[<Emit("require('electron-context-menu')({});")>]
-let contextMenu () = jsNative
-
-let settings:obj = importDefault "electron-settings"
+let hasDebugArgs() = argFlagIsOn [ "--debug"; "-d" ]
 
 let dTrace fmt s = if hasDebugArgs() then printfn fmt s
 
-dTrace "settings=%A" (settings?get "editor-theme")
+let app : obj = electron?app
 
-let enableHotReload (window:BrowserWindow) =
-        printfn "Enabling development hot reload..."
-        fs.watch(path.join(Node.Globals.__dirname, "/main.js"), fun _ _ ->
-            window.webContents.reloadIgnoringCache()
-        ) |> ignore
-        fs.watch(path.join(Node.Globals.__dirname, "/app/js"), fun _ _ ->
-            window.webContents.reloadIgnoringCache()
-        ) |> ignore
-        fs.watch(path.join(Node.Globals.__dirname, "/app/css"), fun _ _ ->
-            window.webContents.reloadIgnoringCache()
-        ) |> ignore
-        fs.watch(path.join(Node.Globals.__dirname, "/app/index.html"), fun _ _ ->
-            window.webContents.reloadIgnoringCache()
-        ) |> ignore
+// Keep a global reference of the window object, if you don't, the window will
+// be closed automatically when the JavaScript object is garbage collected.
+let mutable mainWindow : obj option = None
 
+remoteMain?initialize () |> ignore
 
 /// create main renderer window of app
 let createMainWindow () =
-    if hasHelpArgs() then printHelpMessage()
-    else 
-        if hasDebugArgs() then printfn "Starting to create app window..."
-        let options = createEmpty<BrowserWindowOptions>
-        // Complete list of window options
-        // https://electronjs.org/docs/api/browser-window#new-browserwindowoptions
-        options.width <- Some 1200.
-        options.height <- Some 800.
-        options.show <- Some false
-        let prefs = createEmpty<WebPreferences>
-        prefs.devTools <- Some (argFlagIsOn ["-w"; "-d"; "--debug"])   
-        options.webPreferences <- Some prefs
-    
-        options.frame <- Some true
-        options.hasShadow <- Some true
-        options.backgroundColor <-  Some "#5F9EA0"
-        options.icon <- Some (U2.Case2  "app/visual.ico")
+    if hasHelpArgs() then
+        printHelpMessage()
+        app?quit () |> ignore
+    else
+        dTrace "%s" "Starting to create app window..."
+        let options =
+            createObj [
+                "width" ==> 1200
+                "height" ==> 800
+                "show" ==> false
+                "frame" ==> true
+                "hasShadow" ==> true
+                "backgroundColor" ==> "#5F9EA0"
+                "icon" ==> path?join (dirname, "..", "app", "visual.ico")
+                "webPreferences" ==> createObj [
+                    // The renderer uses node (fs, path) directly and only ever loads local app pages
+                    "nodeIntegration" ==> true
+                    "contextIsolation" ==> false
+                    "sandbox" ==> false
+                    "devTools" ==> true
+                ]
+            ]
+        let window = createNew electron?BrowserWindow options
+        remoteMain?enable (window?webContents) |> ignore
+        if hasDebugArgs() then
+            window?webContents?openDevTools () |> ignore
+            // echo renderer console output and failures to the terminal
+            window?webContents?on ("console-message", fun (e : obj) (level : obj) (msg : obj) (line : obj) (src : obj) ->
+                // Electron 35+: details are properties of the event; older: positional arguments
+                let msg, line, src = if isNull msg then e?message, e?lineNumber, e?sourceId else msg, line, src
+                printfn "[renderer] %O (%O:%O)" msg src line) |> ignore
+            window?webContents?on ("did-fail-load", fun _ (code : obj) (desc : obj) (url : obj) ->
+                printfn "[renderer] failed to load %O: %O %O" url code desc) |> ignore
+            window?webContents?on ("render-process-gone", fun _ (details : obj) ->
+                printfn "[renderer] process gone: %O" (details?reason)) |> ignore
+        let indexHtml = path?join (dirname, "..", "app", "index.html")
+        dTrace "Loading HTML: %s" indexHtml
+        window?loadFile (indexHtml) |> ignore
 
-        let window = electron.BrowserWindow.Create(options)
-        if hasDebugArgs() then  window.webContents.openDevTools();
-        // Load the index.html of the app.
-        let opts = createEmpty<Node.Url.Url<obj>>
-        opts.pathname <- Some <| path.join(Node.Globals.__dirname, "/app/index.html")
-        opts.protocol <- Some "file:"
-        dTrace "Loading HTML: %A" opts.pathname
-        window.loadURL(url.format(opts))
-        dTrace "%s" "load complete"       
         let mutable closeAfterSave = false
-        window.on("close", 
-             unbox (fun e ->
-                  if not closeAfterSave then
-                       dTrace "%s" "Close event received!"
-                       e?preventDefault () |> ignore
-                       window.webContents.send "closingWindow"
-             )) |> ignore
-        // Emitted when the window is closed.
-        window.on("closed", unbox(fun () ->
-            // Dereference the window object, usually you would store windows
-            // in an array if your app supports multi windows, this is the time
-            // when you should delete the corresponding element.
-            mainWindow <- Option.None
-            )) |> ignore
+        window?on ("close", fun (e : obj) ->
+            if not closeAfterSave then
+                dTrace "%s" "Close event received!"
+                e?preventDefault () |> ignore
+                window?webContents?send ("closingWindow") |> ignore) |> ignore
 
-        window.on("resize",
-            unbox ( fun _ ->
-                window.webContents.send "resizeWindow")) |> ignore
+        window?on ("closed", fun () -> mainWindow <- None) |> ignore
 
-        window.webContents.on("new-window",  (fun e x ->
-            printfn "Opening new window! %A %A" e x
-            e?preventDefault();
-            electron.shell.openExternal x |> ignore
-        )) |> ignore
-        
-        electron.ipcMain?on ("doClose", unbox (fun () ->
+        window?on ("resize", fun () -> window?webContents?send ("resizeWindow") |> ignore) |> ignore
+
+        // links that would open a new window open in the system browser instead
+        window?webContents?setWindowOpenHandler (fun (details : obj) ->
+            electron?shell?openExternal (details?url) |> ignore
+            createObj [ "action" ==> "deny" ]) |> ignore
+
+        electron?ipcMain?on ("doClose", fun () ->
             closeAfterSave <- true
             dTrace "%s" "Closing window NOW!"
-            window?close()
-            )) |> ignore
+            window?close () |> ignore) |> ignore
 
+        // No menu until the renderer process installs the real one.
+        // (A placeholder menu with an empty item stopped the renderer starting on Linux.)
+        electron?Menu?setApplicationMenu (null) |> ignore
 
-        // Maximize the window
-        //window.maximize()
-
-        // Clear the menuBar, this is overwritten by the renderer process
-        let template = ResizeArray<MenuItemOptions> [
-                            createEmpty<MenuItemOptions>
-                        ]
-        electron.Menu.setApplicationMenu(electron.Menu.buildFromTemplate(template))
-
-        window.on("ready-to-show", (fun () -> 
-            window.show() 
-            options.backgroundColor <- Some "#F0F0F0"
-            window.focus()
-            dTrace "%s" "Window on!"
-            if argFlagIsOn ["-w"] then enableHotReload window)
-         ) |> ignore
+        window?on ("ready-to-show", fun () ->
+            window?show () |> ignore
+            window?focus () |> ignore
+            dTrace "%s" "Window on!") |> ignore
 
         mainWindow <- Some window
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-electron.app.on("ready", unbox createMainWindow) |> ignore
+/// ensure that if app is started again the first instance is focussed and the second quits
+if not (app?requestSingleInstanceLock () : bool) then
+    app?quit () |> ignore
+else
+    app?on ("second-instance", fun () ->
+        match mainWindow with
+        | Some win ->
+            if win?isMinimized () then win?restore () |> ignore
+            win?focus () |> ignore
+        | None -> ()) |> ignore
 
-// Quit when all windows are closed.
-electron.app.on("window-all-closed", unbox(fun () ->
-    // On OS X it is common for applications and their menu bar
-    // to stay active until the user quits explicitly with Cmd + Q
-   // if Node.Globals.``process``.platform <> Node.Base.NodeJS.Darwin then
-        electron.app.quit()
-)) |> ignore
+    // This method will be called when Electron has finished
+    // initialization and is ready to create browser windows.
+    app?on ("ready", createMainWindow) |> ignore
 
-electron.app.on("activate", unbox(fun () ->
-    // On OS X it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if mainWindow.IsNone  then
-        createMainWindow()
-)) |> ignore
+    // Quit when all windows are closed.
+    app?on ("window-all-closed", fun () -> app?quit () |> ignore) |> ignore
 
+    app?on ("activate", fun () -> if mainWindow.IsNone then createMainWindow ()) |> ignore

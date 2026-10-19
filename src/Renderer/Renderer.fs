@@ -1,4 +1,4 @@
-(*
+﻿(*
     High Level Programming @ Imperial College London # Spring 2018
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Renderer
@@ -8,14 +8,16 @@
 /// Top-level renderer process function: calls everything else
 
 module Renderer
+
+open Interop
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Browser
-
+open Browser
+open Browser.Types
+open Browser.Dom
 // open DevTools to see the message
 // Menu -> View -> Toggle Developer Tools
-Browser.console.log "Hi from renderer.fs" |> ignore
+console.log "Hi from renderer.fs" |> ignore
 
 open Refs
 open MenuBar
@@ -25,7 +27,7 @@ open MenuBar
 /// 0 => production. 1 => dev. 2 => debug.
 let setDebugLevel() =
     let argV =
-        electron.remote.``process``.argv
+        mainArgv ()
         |> Seq.toList
         |> List.tail
         |> List.map (fun s -> s.ToLower())
@@ -65,13 +67,9 @@ let init() =
     document.getElementById("vis-body").classList.remove("invisible")
 
     // Set up window close interlock using IPC from/to main process
-    electron.ipcRenderer.on ("closingWindow", (fun event ->
-        MenuBar.ExitIfOK()
-        )) |> ignore
+    ipcOn "closingWindow" (fun _ -> MenuBar.ExitIfOK())
 
-    electron.ipcRenderer.on ("resizeWindow", (fun event ->
-        resizeGUI()
-        )) |> ignore
+    ipcOn "resizeWindow" (fun _ -> resizeGUI())
 
 
 
@@ -82,7 +80,6 @@ let init() =
     Refs.saveFileBtn.addEventListener_click (fun _ -> MenuBar.interlock "save file" Files.saveFile)
 
     Refs.runSimulationBtn.addEventListener_click (fun _ ->
-        Stats.readOnlineInfo Stats.RunningCode
         Integration.runCode ExecutionTop.NoBreak () :> obj
     )
     stepForwardBtn.addEventListener_click (fun _ ->
@@ -100,31 +97,31 @@ let init() =
     )
 
     mapClickAttacher repToId Refs.representation (fun rep ->
-        Browser.console.log (sprintf "Representation changed to %A" rep) |> ignore
+        console.log (sprintf "Representation changed to %A" rep) |> ignore
         Views.setRepresentation rep |> ignore
         Views.updateMemory()
         Views.updateSymTable() :> obj
     )
 
     mapClickAttacher viewToIdTab Refs.viewTab (fun view ->
-        Browser.console.log (sprintf "View changed to %A" view) |> ignore
+        console.log (sprintf "View changed to %A" view) |> ignore
         Views.setView view :> obj
     )
 
     (Refs.byteViewBtn).addEventListener_click(fun _ ->
-        Browser.console.log "Toggling byte view" |> ignore
+        console.log "Toggling byte view" |> ignore
         Views.toggleByteView()
         Views.updateMemory() :> obj
     )
 
     (Refs.reverseViewBtn).addEventListener_click(fun _ ->
-        Browser.console.log "Toggling reverse view" |> ignore
+        console.log "Toggling reverse view" |> ignore
         Views.toggleReverseView()
         Views.updateMemory() :> obj
     )
 
     (Refs.newFileTab).addEventListener_click(fun _ ->
-        Browser.console.log "Creating a new file tab" |> ignore
+        console.log "Creating a new file tab" |> ignore
         MenuBar.interlock "create a new tab" (fun () -> Tabs.createFileTab() |> ignore))
 
     // create electron menus
@@ -138,30 +135,23 @@ let init() =
 
     Tooltips.addFixedToolTips()
 
-    Stats.readOnlineInfo Stats.Startup
 
 /// top-level function that runs the renderer code
-let handleMonacoReady = { new EventListenerObject with
-    member x.handleEvent (_ : Event) = init()
- }
+let handleMonacoReady (_ : Event) = init()
 
-let handlePreventDefault = { new EventListenerObject with
-    member x.handleEvent (e : Event) = e.preventDefault()
- }
+let handlePreventDefault (e : Event) = e.preventDefault()
 
+let handleDrop (e : Event) =
+    e.preventDefault()
+    let files = (e :?> DragEvent).dataTransfer.files
+    let num = (files.length |> int)
+    let paths =
+            [ 0..num - 1 ]
+            // File.path was removed in Electron 32: webUtils.getPathForFile replaces it
+            |> List.map (fun s -> electron?webUtils?getPathForFile (files.[s]) : string)
+    interlock "open files" (fun () -> openListOfFiles paths |> ignore) |> ignore
 
-let handleDrop = { new EventListenerObject with
-    member x.handleEvent (e : Event) =
-        e.preventDefault()
-        let files = (e :?> DragEvent).dataTransfer.files
-        let num = (files.length |> int)
-        let paths =
-                [ 0..num - 1 ]
-                |> List.map (fun s -> files.[s]?path)
-        interlock "open files" (fun () -> openListOfFiles paths |> ignore) |> ignore
- }
-
-document.addEventListener ("monaco-ready", U2.Case2 handleMonacoReady)
-document.addEventListener ("dragover", U2.Case2 handlePreventDefault)
-document.addEventListener ("drop", U2.Case2 handleDrop)
+document.addEventListener ("monaco-ready", handleMonacoReady)
+document.addEventListener ("dragover", handlePreventDefault)
+document.addEventListener ("drop", handleDrop)
 

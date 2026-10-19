@@ -8,7 +8,6 @@ module ErrorDocs
 
 open EEExtensions
 open Refs
-open Fable.PowerPack
 
 type CodeType = DP3 | DP2 | CMP | MUL | LDRSTR | LDMSTM | STACK | MISC | EQU | UNIMPLEMENTED
 

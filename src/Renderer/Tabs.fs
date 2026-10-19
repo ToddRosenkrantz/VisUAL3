@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Tabs
@@ -8,9 +8,12 @@
 /// implement Monaco editor file tabs
 
 module Tabs
+
+open Interop
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Browser
+open Browser
+open Browser.Types
+open Browser.Dom
 open Fable.Core
 open EEExtensions
 open CommonData
@@ -121,7 +124,7 @@ let getTabName id =
 
 // Determines if a tab of a given id is unsaved
 let isTabUnsaved id =
-    (Refs.fileTab id).lastElementChild.classList.contains("unsaved")
+    (Refs.fileTab id)?lastElementChild?classList?contains("unsaved") : bool
 
 let deleteFileTab id =
     let isSettingsTab =
@@ -139,7 +142,7 @@ let deleteFileTab id =
     let confirmDelete =
         match isTabUnsaved id with
         | false -> true
-        | true -> Browser.window.confirm (
+        | true -> window.confirm (
                     sprintf "You have unsaved changes, are you sure you want to close %s?" (String.replace "*" "" tabName)
                     )
 

@@ -14,8 +14,8 @@ open Integration
 open Errors
 open EEExtensions
 open Fable.Core
-open Fable.Import
-open Node.Exports
+open Fable.Core.JsInterop
+open Interop
 open CommonData
 open Helpers
 
@@ -58,12 +58,12 @@ type TestT = | OkTests | ErrorTests | BetterThanModelTests
 let writeDirPath = Refs.appDirName + @"/test-results"
 
 let readFileViaNode (path : string) : string =
-    (fs.readFileSync path).toString("utf8")
+    fs.readTextSync path
 
 let fnWithoutSuffix (f : string) = (f.Split [| '.' |]).[0]
 
 let readAllowedTests() =
-    fs.readdirSync (U2.Case1(Refs.appDirName + @"/test-data"))
+    fs.readdirSync (Refs.appDirName + @"/test-data")
     |> Seq.toList
     |> List.filter (String.contains "ALLOWED")
     |> List.map (fun s -> Refs.appDirName + @"/test-data/" + s)
@@ -82,7 +82,7 @@ let writeFileViaNode (path : string) (str : string) =
     try
         let errorHandler _err = // TODO: figure out how to handle errors which can occur
             ()
-        if not (fs.existsSync (U2.Case1 writeDirPath)) then fs.mkdirSync writeDirPath
+        if not (fs.existsSync writeDirPath) then fs.mkdirSync writeDirPath
         fs.writeFileSync (path, str) |> ignore
         Ok()
     with
@@ -243,9 +243,9 @@ let writeResultsToFile fn rt resL =
     //printfn "Resl =%A" resL
     match resL with
     | [] ->
-        if fs.existsSync (U2.Case1 fName) then
+        if fs.existsSync fName then
             try
-                fs.unlinkSync (U2.Case1 fName)
+                fs.unlinkSync fName
                 Ok()
             with
                 | _ -> Error <| sprintf "Can't delete read-only file %s" fName
@@ -339,13 +339,13 @@ let runEmulatorTestFile allowed fn =
 let runAllEmulatorTests() =
     let allowed = readAllowedTests()
     printfn "Errors allowed in tests: %A" allowed
-    let contents = electron.remote.getCurrentWebContents()
-    if not (contents.isDevToolsOpened()) then contents.toggleDevTools()
+    let contents = currentWebContents()
+    if not (contents?isDevToolsOpened ()) then contents?toggleDevTools () |> ignore
     let files =
         try
-            fs.readdirSync (U2.Case1(Refs.appDirName + "/test-data"))
+            fs.readdirSync (Refs.appDirName + "/test-data")
         with
-            | _ -> ResizeArray()
+            | _ -> [||]
         |> Seq.toList
         |> (fun lis ->
                 if List.contains "focus.txt" lis

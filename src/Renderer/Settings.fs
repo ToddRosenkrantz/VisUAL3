@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Settings
@@ -8,7 +8,11 @@
 /// implement electron-style persistent settings via electron-settings module
 
 module Settings
-open Fable.Import.Browser
+
+open Interop
+open Browser
+open Browser.Types
+open Browser.Dom
 open Fable.Core.JsInterop
 
 open Refs
@@ -88,7 +92,7 @@ let makeInputVal inType name (min : int, steps : int, max : int) defi =
     fi.step <- steps.ToString()
     fi.value <- defi.ToString()
     // Whenever a form input is changed, set the settings tab unsaved
-    fi.onchange <- fun e -> setSettingsUnsaved e :> obj
+    fi.onchange <- fun e -> setSettingsUnsaved e |> ignore
     //fi.onerror <- (fun _ -> printfn "Error")
     //fi.onreset <- (fun _ -> printfn "Reset")
     fi
@@ -108,7 +112,7 @@ let makeInputSelect options name defV =
 
     select.value <- defV
 
-    select.onchange <- fun e -> setSettingsUnsaved e :> obj
+    select.onchange <- fun e -> setSettingsUnsaved e |> ignore
 
     select
 
@@ -131,7 +135,7 @@ let makeInputCheckbox name trueVal falseVal defVal =
 
     setValue()
 
-    checkbox.onchange <- (fun e -> setSettingsUnsaved e :> obj)
+    checkbox.onchange <- (fun e -> setSettingsUnsaved e |> ignore)
     checkbox
 
 

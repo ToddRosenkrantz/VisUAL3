@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Integration
@@ -8,6 +8,9 @@
 /// integrate emulator code with renderer
 module Integration
 
+
+open Interop
+open Browser.Dom
 open EEExtensions
 open Tabs
 open Views
@@ -20,9 +23,6 @@ open Editors
 open TestLib
 open Testbench
 open Fable.Core.JsInterop
-open Fable.Import
-
-
 /// Number of execution steps before checking if button has been pressed
 /// and updating displayed state
 let maxStepsBeforeCheckEvents : int64 = 5000L
@@ -256,9 +256,9 @@ let UpdateGUIFromRunState(pInfo : RunInfo) =
         let lineMess = getCodeLineMess pInfo
         highlightCurrentAndNextIns "editor-line-highlight-error" pInfo currentFileTabId
         updateRegisters()
-        Browser.window.setTimeout ((fun () ->
+        window.setTimeout ((fun () ->
             showVexAlert (sprintf "Error %s: %s" lineMess msg)
-            RunErrorMode pInfo), 100, []) |> ignore
+            RunErrorMode pInfo |> ignore), 100) |> ignore
         setMode (RunMode.RunErrorMode pInfo)
 
     | PSError(``Unknown symbol runtime error`` undefs) ->
@@ -291,7 +291,7 @@ let tryParseAndIndentCode tId =
     // See if any errors exist, if they do display them
     match lim with
     | { Errors = [] } as lim ->
-        //Browser.console.log(sprintf "%A" lim)
+        //console.log(sprintf "%A" lim)
         let editor = editors.[tId]
         let trimmed line = String.trimEnd [| '\r'; '\n' |] line
         let newCode = List.map trimmed lim.Source
@@ -405,9 +405,9 @@ let rec asmStepDisplay (breakc : BreakCondition) steps ri' =
             showInfoFromCurrentMode() // main function to update GUI
             match ri'.State with
             | PSRunning -> //
-                 Browser.window.setTimeout ((fun () ->
+                 window.setTimeout ((fun () ->
                         // schedule more simulation in the event loop allowing button-press events
-                        asmStepDisplay ri'.BreakCond steps ri'), 0, []) |> ignore
+                        asmStepDisplay ri'.BreakCond steps ri' |> ignore), 0) |> ignore
             | _ ->
                 displayState ri' false // update GUI
                 highlightCurrentAndNextIns "editor-line-highlight" ri' currentFileTabId

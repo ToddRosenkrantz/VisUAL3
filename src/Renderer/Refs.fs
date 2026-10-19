@@ -1,4 +1,4 @@
-
+﻿
 (*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
@@ -11,10 +11,11 @@ module Refs
 open CommonData
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import
-open Fable.Import.Browser
+open Browser
+open Browser.Types
+open Browser.Dom
 open Microsoft.FSharp.Collections
-open Node.Exports
+open Interop
 open EEExtensions
 
 
@@ -61,16 +62,17 @@ type VSettings = {
 
 //------------------------------------------TIPPY.JS----------------------------------------------
 
-/// top-level function from tippy.js to make tooltips
-let tippy (rClass : string, tippyOpts : obj) : unit = importDefault "tippy.js"
+/// top-level function from tippy.js (v6 UMD build loaded by index.html) to make tooltips
+[<Emit("tippy($0, $1)")>]
+let tippy (selector : string, tippyOpts : obj) : unit = jsNative
 
 //-------------------------------------------VEX-JS-----------------------------------------------
 
 /// interfaces to vex.js
-[<Emit("require('vex-js');")>]
+[<Emit("require('vex-js')")>]
 let vex : obj = jsNative
 
-[<Emit("require('vex-dialog');")>]
+[<Emit("require('vex-dialog')")>]
 let vexDialog : obj = jsNative
 
 vex?defaultOptions?className <- "vex-theme-default"
@@ -138,6 +140,16 @@ let testVex() : unit =
 // Fable.Helpers.React.Props
 // see tooltips.fs for examples and some documentation of SVG helpers
 
+/// Helpers kept from the Fable 2 browser bindings so existing call sites compile unchanged
+type HTMLElement with
+    member ele.addEventListener_click (listener : MouseEvent -> obj) =
+        ele.addEventListener ("click", fun e -> listener (e :?> MouseEvent) |> ignore)
+
+type Document with
+    member doc.createElement_input () = doc.createElement "input" :?> HTMLInputElement
+    member doc.createElement_select () = doc.createElement "select" :?> HTMLSelectElement
+    member doc.createElement_option () = doc.createElement "option" :?> HTMLOptionElement
+
 // ***********************************************************************************************
 //                                  Mini DSL for creating DOM objects
 // ***********************************************************************************************
@@ -152,7 +164,7 @@ let INNERHTML html (ele : HTMLElement) = (ele.innerHTML <- html); ele
 let STYLE (name, value) (ele : HTMLElement) = ele.style.setProperty (name, value); ele
 
 let ID name (ele : HTMLElement) = (ele.id <- name); ele
-let CLICKLISTENER (listener : unit -> unit) (ele : HTMLElement) = (ele.addEventListener_click (fun _ -> listener() |> ignore; createObj [])); ele
+let CLICKLISTENER (listener : unit -> unit) (ele : HTMLElement) = (ele.addEventListener ("click", fun _ -> listener())); ele
 
 let DIV = ELEMENT "div"
 
@@ -161,7 +173,7 @@ let BR() = document.createElement "br"
 let FORM classes contents =
     let form = ELEMENT "form" classes contents
         // disable form submission
-    form.onsubmit <- (fun _ -> false :> obj)
+    form.onsubmit <- (fun e -> e.preventDefault())
     form
 
 let TABLE = ELEMENT "table"
@@ -177,7 +189,7 @@ let TD x = ELEMENT "td" [] <| [ x ]
 // *************************************************************************************
 
 /// look up a DOM element
-let getHtml = Browser.document.getElementById
+let getHtml = document.getElementById
 //--------------------------- Buttons -------------------------------
 
 let openFileBtn = getHtml "explore" :?> HTMLButtonElement
@@ -347,9 +359,7 @@ let cacheLastWithActionIfChanged actionFunc =
 
 
 
-/// A reference to the settings for the app
-/// persistent using electron-settings
-let settings : obj = electron.remote.require "electron-settings"
+// settings persist in a JSON file: see Interop.settingsGet / settingsSet
 
 let mutable vSettings = {
     EditorFontSize = "16"
@@ -357,7 +367,7 @@ let mutable vSettings = {
     EditorTheme = "solarised-dark"
     EditorWordWrap = "off"
     EditorRenderWhitespace = "none"
-    CurrentFilePath = Fable.Import.Node.Exports.os.homedir()
+    CurrentFilePath = os.homedir()
     RegisteredKey = ""
     OnlineFetchText = ""
     }
@@ -373,8 +383,8 @@ let maxFontSize = 60L
 let checkPath (p : string) =
     let p' = path.dirname p
     try
-        let stat' = fs.statSync (U2.Case1 p')
-        let stat = fs.statSync (U2.Case1 p)
+        let stat' = fs.statSync p'
+        let stat = fs.statSync p
         match (stat.isDirectory(), stat'.isDirectory()) with
         | true, _ -> p
         | false, true -> p'
@@ -418,13 +428,13 @@ let checkSettings (vs : VSettings) =
 let setJSONSettings() =
     let setSetting (name : string) (value : string) =
         printf "Saving JSON: %A" value
-        settings?set (name, value) |> ignore
+        settingsSet name (box value)
     printfn "Saving settings to this PC: %A" vSettings
-    setSetting "JSON" (Fable.Import.JS.JSON.stringify vSettings)
+    setSetting "JSON" (JS.JSON.stringify vSettings)
 
 
 let getJSONSettings() =
-    let json = settings?get ("JSON", "undefined")
+    let json : string = unbox (settingsGet "JSON" (box "undefined"))
     printfn "Getting settings"
     match json = "undefined" with
     | true ->
@@ -433,7 +443,7 @@ let getJSONSettings() =
             vSettings
     | false ->
         try
-            let vs = (Fable.Import.JS.JSON.parse json) :?> VSettings
+            let vs = unbox<VSettings> (JS.JSON.parse json)
             vs
         with
         | e ->
@@ -441,40 +451,23 @@ let getJSONSettings() =
             vSettings
 
 let showMessage1 (callBack : int -> unit) (message : string) (detail : string) (buttons : string list) =
-    let rem = electron.remote
-    let retFn = unbox callBack
-    rem.dialog.showMessageBox (
-       (let opts = createEmpty<Fable.Import.Electron.ShowMessageBoxOptions>
-        opts.title <- FSharp.Core.Option.None
-        opts.message <- message |> Some
-        opts.detail <- detail |> Some
-        opts.``type`` <- "none" |> Some
-        opts.buttons <- buttons |> List.toSeq |> ResizeArray |> Some
-        opts), retFn)
-    |> ignore
+    showMessageBox (createObj [ "message" ==> message; "detail" ==> detail; "type" ==> "none"; "buttons" ==> List.toArray buttons ])
+    |> callBack
 
 let showAlert (message : string) (detail : string) =
     showVexAlert <|
         sprintf """<p style="text-align:center"><b>%s</b><br>%s</p>""" detail message
 
 let showAlert1 (message : string) (detail : string) =
-    let rem = electron.remote
-    rem.dialog.showMessageBox (
-       (let opts = createEmpty<Fable.Import.Electron.ShowMessageBoxOptions>
-        opts.title <- FSharp.Core.Option.None
-        opts.message <- message |> Some
-        opts.detail <- detail |> Some
-        opts.``type`` <- "error" |> Some
-        opts))
-    |> ignore
+    showMessageBox (createObj [ "message" ==> message; "detail" ==> detail; "type" ==> "error" ]) |> ignore
 
 /// extract CSS custom variable value
 let getCustomCSS (varName : string) =
-    let styles = window.getComputedStyle Browser.document.documentElement
+    let styles = window.getComputedStyle document.documentElement
     styles.getPropertyValue varName
 /// set a custom CSS variable defined in :root pseudoclass
 let setCustomCSS (varName : string) (content : string) =
-    let element = Browser.document.documentElement
+    let element = document.documentElement
     element.style.setProperty (varName, content)
 
 /// set the CSS variable that determines dashboard width
@@ -495,35 +488,28 @@ let visualDocsPage name =
 /// Second parameter triggers action (for use in menus)
 let runPage url () =
     printf "Running page %s" url
-    let rem = electron.remote
-    let options = createEmpty<Electron.BrowserWindowOptions>
-    // Complete list of window options
     // https://electronjs.org/docs/api/browser-window#new-browserwindowoptions
-    options.width <- Some 1200.
-    options.height <- Some 800.
-    //options.show <- Some false
-    let prefs = createEmpty<Electron.WebPreferences>
-    prefs.devTools <- Some false
-    prefs.nodeIntegration <- Some false
-    options.webPreferences <- Some prefs
-
-    options.frame <- Some true
-    options.hasShadow <- Some true
-    options.backgroundColor <- None
-    options.icon <- Some(U2.Case2 "app/visual.ico")
-    let window = rem.BrowserWindow.Create(options)
-    window.setMenuBarVisibility true
-    window.loadURL url
-    window.show()
+    let options =
+        createObj [
+            "width" ==> 1200
+            "height" ==> 800
+            "frame" ==> true
+            "hasShadow" ==> true
+            "icon" ==> path.join (dirname, "visual.ico")
+            "webPreferences" ==> createObj [ "devTools" ==> false; "nodeIntegration" ==> false; "contextIsolation" ==> true ]
+        ]
+    let window = createNew remote?BrowserWindow options
+    window?setMenuBarVisibility (true) |> ignore
+    window?loadURL (url) |> ignore
+    window?show () |> ignore
 
 let runExtPage url () =
-    electron.shell.openExternal url |> ignore
+    openExternal url
 
 
 let writeToFile str path =
-    let errorHandler _err = // TODO: figure out how to handle errors which can occur
-        ()
-    fs.writeFile (path, str, errorHandler)
+    try fs.writeFileSync (path, str)
+    with e -> printfn "Could not write %s: %s" path e.Message
 
 
 // ***********************************************************************************************

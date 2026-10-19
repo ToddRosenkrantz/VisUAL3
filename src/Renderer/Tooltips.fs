@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Tooltips
@@ -7,9 +7,9 @@
 
 /// F# References to static parts of renderer DOM
 module Tooltips
-
-open Fable.Import
-open Fable.Import.Browser
+open Browser
+open Browser.Types
+open Browser.Dom
 open Fable.Core.JsInterop
 open Microsoft.FSharp.Collections
 open EEExtensions
@@ -120,8 +120,51 @@ let inline tspan b c = svgEl "tspan" b c
 //
 //---------------------------------------------------------------------------------------------------------------------------
 
-open Fable.Helpers.React
-open Fable.Helpers.React.Props
+/// Minimal SVG DSL with the same names as the Fable.React helpers it replaces.
+/// Nodes are rendered to SVG markup text, then parsed into the DOM.
+type SvgAttr = string * string
+
+type SvgNode =
+    | SvgEl of string * SvgAttr list * SvgNode list
+    | SvgText of string
+
+let svgEl name (attrs : SvgAttr list) children = SvgEl(name, attrs, children)
+let svg attrs children = svgEl "svg" (("xmlns", "http://www.w3.org/2000/svg") :: attrs) children
+let defs attrs children = svgEl "defs" attrs children
+let path attrs children = svgEl "path" attrs children
+let line attrs children = svgEl "line" attrs children
+let rect attrs children = svgEl "rect" attrs children
+let text attrs children = svgEl "text" attrs children
+let ofString (s : string) = SvgText s
+
+let X (v : string) : SvgAttr = "x", v
+let Y (v : string) : SvgAttr = "y", v
+let X1 (v : string) : SvgAttr = "x1", v
+let Y1 (v : string) : SvgAttr = "y1", v
+let X2 (v : string) : SvgAttr = "x2", v
+let Y2 (v : string) : SvgAttr = "y2", v
+let D (v : string) : SvgAttr = "d", v
+let ViewBox (v : string) : SvgAttr = "viewBox", v
+
+[<RequireQualifiedAccess>]
+module SVGAttr =
+    let Stroke (v : string) : SvgAttr = "stroke", v
+    let Fill (v : string) : SvgAttr = "fill", v
+    let StrokeWidth (v : string) : SvgAttr = "stroke-width", v
+    let MarkerEnd (v : string) : SvgAttr = "marker-end", v
+    let Width (v : string) : SvgAttr = "width", v
+    let Height (v : string) : SvgAttr = "height", v
+    let TextAnchor (v : string) : SvgAttr = "text-anchor", v
+
+/// render an SVG node tree as markup
+let rec svgMarkup (node : SvgNode) =
+    let esc (s : string) = s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;")
+    match node with
+    | SvgText t -> esc t
+    | SvgEl(name, attrs, children) ->
+        let attrName = function | "className" -> "class" | "dominantBaseline" -> "dominant-baseline" | a -> a
+        let attrText = attrs |> List.map (fun (a, v) -> sprintf " %s=\"%s\"" (attrName a) (esc v)) |> String.concat ""
+        sprintf "<%s%s>%s</%s>" name attrText (children |> List.map svgMarkup |> String.concat "") name
 open System.Diagnostics
 open System
 
@@ -236,10 +279,10 @@ let register boxClass txtClass (boxW, boxH) (posX, posY) (bits : int list) =
     svgEl "g" [] boxes
 
 
-/// Turn react element into HTML DOM element
+/// Turn SVG node tree into HTML DOM element
 let makeHtmlFromSVG re =
     let ele = ELEMENT "div" [] []
-    ReactDom.render (re, ele)
+    ele.innerHTML <- svgMarkup re
     ele
 
 /// Generate an SVG diagram for shifts as HTML DOM
@@ -337,22 +380,6 @@ let displayShiftDiagram rn (beforeNum, beforeC) (op2Num, (rDest, destNum), op2C,
     |> makeHtmlFromSVG
 
 
-/// Simple SVG picture as demo
-let demoSVG() =
-    svg
-      [ ViewBox "0 0 100 100"; unbox ("width", "700x") ]
-      [ circle
-          [ Cx(!!"50"); Cy(!!"50"); R(!!"45"); !!("fill", "#0B79CE") ]
-          []
-        text [ X "25"; Y "25" ] [ ofString "a" ]
-        text [ X "50"; Y "50" ] [ ofString "b" ]
-        svgMarkerDefs()
-        line [ X1 "50"; Y1 "50"; X2 "25"; Y2 "25"; SVGAttr.Stroke "red"; SVGAttr.MarkerEnd "url(#arrow)" ] []
-        rect [ X "40.5"; Y "40.5"; SVGAttr.Width "50"; SVGAttr.Height "20"; SVGAttr.Stroke "red"; SVGAttr.Fill "white"; !!("className", "tooltip-shift-reg-box") ] []
-        text [ X "65"; Y "50"; !!("dominantBaseline", "middle"); SVGAttr.TextAnchor "middle"; !!("className", "tooltip-shift-reg-txt") ] [ ofString "1" ]
-      ]
-
-
 // ***********************************************************************************************
 //                                  Tooltips using Tippy.js
 // ***********************************************************************************************
@@ -415,17 +442,18 @@ let tippyTheme() =
 /// <param name="button"> true => delay tooltip and make it close on click </param>
 /// <param name="domID"> ID of DOM element to which tooltip is attached </param>
 let makeTooltip (theme : string) (placement : string) (clickable : bool) (button : bool) (domID : string) (tooltip : HTMLElement) =
+    // tippy.js v6 options: https://atomiks.github.io/tippyjs/v6/all-props/
     tippy ("#" + domID, createObj <|
         [
-            "html" ==> tooltip
-            "hideOnClick" ==> if clickable then true :> obj else button :> obj
+            "content" ==> tooltip
+            "hideOnClick" ==> (clickable || button)
             "interactive" ==> not clickable
-            "delay" ==> if button then "[1300,0]" else "0"
+            "delay" ==> (if button then [| 1300; 0 |] else [| 0; 0 |])
             "arrow" ==> true
-            "trigger" ==> if clickable then "click" else "mouseenter"
-            "arrowType" ==> "round"
+            "trigger" ==> (if clickable then "click" else "mouseenter focus")
             "theme" ==> theme
             "placement" ==> placement
+            "appendTo" ==> (fun () -> document.body)
         ])
 
 
@@ -449,7 +477,7 @@ let makeEditorInfoButtonWithTheme theme (clickable : bool) (h, v, orientation) (
         |> ID domID
         |> STYLE ("margin-left", sprintf "%.0fpx" (editorFontWidthRatio * (float h + 2.0) * float (int vSettings.EditorFontSize)))
     dom.addEventListener_click (fun _ ->
-        Browser.console.log (sprintf "Clicking button %s" buttonText) |> (fun _ -> createObj [])
+        console.log (sprintf "Clicking button %s" buttonText) |> (fun _ -> createObj [])
         )
     deleteContentWidget domID // in some cases we may be updating an existing widget
     makeContentWidget domID dom <| Exact(0, v)

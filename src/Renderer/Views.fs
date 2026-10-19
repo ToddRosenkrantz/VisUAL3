@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Views
@@ -10,7 +10,9 @@ module Views
 
 open Fable.Core
 open Fable.Core.JsInterop
-open Fable.Import.Browser
+open Browser
+open Browser.Types
+open Browser.Dom
 open Refs
 open Fable
 open ExecutionTop
