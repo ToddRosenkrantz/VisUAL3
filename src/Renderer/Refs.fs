@@ -42,6 +42,7 @@ type Views =
     | Registers
     | Memory
     | Symbols
+    | CCall
 
 type VSettings = {
     EditorFontSize : string
@@ -239,6 +240,7 @@ let viewToIdView =
         Registers, "view-reg";
         Memory, "view-mem";
         Symbols, "view-sym";
+        CCall, "view-call";
     ]
 /// used to get Tab ID in DOM for each View
 let viewToIdTab =
@@ -246,6 +248,7 @@ let viewToIdTab =
         Registers, "tab-reg";
         Memory, "tab-mem";
         Symbols, "tab-sym"
+        CCall, "tab-call"
     ]
 /// Get Flag display element from ID ("C", "V", "N", "Z")
 let flag id = getHtml <| sprintf "flag_%s" id

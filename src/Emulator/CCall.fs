@@ -22,7 +22,7 @@ open ExecutionTop
 
 /// Integer types the emulator can pass. Plain char is unsigned on ARM (AAPCS).
 type CInt =
-    | CChar of signed : bool
+    | CChar of signed : bool * plain : bool // plain: written as just "char" (unsigned on ARM)
     | CShort of signed : bool
     | CInt32 of signed : bool
     | CBool
@@ -44,8 +44,9 @@ type Prototype = {
 let rec typeName t =
     match t with
     | CVoid -> "void"
-    | CIntT(CChar true) -> "signed char"
-    | CIntT(CChar false) -> "char"
+    | CIntT(CChar(true, _)) -> "signed char"
+    | CIntT(CChar(false, true)) -> "char"
+    | CIntT(CChar(false, false)) -> "unsigned char"
     | CIntT(CShort s) -> if s then "short" else "unsigned short"
     | CIntT(CInt32 s) -> if s then "int" else "unsigned int"
     | CIntT CBool -> "_Bool"
@@ -62,8 +63,8 @@ let sizeOf t =
 /// Range of values allowed for an integer type
 let rangeOf t =
     match t with
-    | CIntT(CChar true) -> -128L, 127L
-    | CIntT(CChar false) | CVoid -> 0L, 255L
+    | CIntT(CChar(true, _)) -> -128L, 127L
+    | CIntT(CChar(false, _)) | CVoid -> 0L, 255L
     | CIntT(CShort true) -> -32768L, 32767L
     | CIntT(CShort false) -> 0L, 65535L
     | CIntT(CInt32 true) -> -2147483648L, 2147483647L
@@ -72,7 +73,7 @@ let rangeOf t =
 
 let isSigned t =
     match t with
-    | CIntT(CChar s) | CIntT(CShort s) | CIntT(CInt32 s) -> s
+    | CIntT(CChar(s, _)) | CIntT(CShort s) | CIntT(CInt32 s) -> s
     | _ -> false
 
 /// Interpret the low (sizeOf t) bytes of a word as a value of type t
@@ -117,8 +118,9 @@ let private baseType (words : string list) : Result<CType, string> =
     let ws = words |> List.filter (fun w -> w <> "const" && w <> "volatile" && w <> "extern" && w <> "static" && w <> "register")
     match ws with
     | [ "void" ] -> Ok CVoid
-    | [ "char" ] | [ "unsigned"; "char" ] | [ "uint8_t" ] -> Ok(CIntT(CChar false))
-    | [ "signed"; "char" ] | [ "int8_t" ] -> Ok(CIntT(CChar true))
+    | [ "char" ] -> Ok(CIntT(CChar(false, true)))
+    | [ "unsigned"; "char" ] | [ "uint8_t" ] -> Ok(CIntT(CChar(false, false)))
+    | [ "signed"; "char" ] | [ "int8_t" ] -> Ok(CIntT(CChar(true, false)))
     | [ "short" ] | [ "short"; "int" ] | [ "signed"; "short" ] | [ "signed"; "short"; "int" ] | [ "int16_t" ] -> Ok(CIntT(CShort true))
     | [ "unsigned"; "short" ] | [ "unsigned"; "short"; "int" ] | [ "uint16_t" ] -> Ok(CIntT(CShort false))
     | [ "int" ] | [ "signed" ] | [ "signed"; "int" ] | [ "long" ] | [ "long"; "int" ] | [ "signed"; "long" ]
@@ -438,7 +440,7 @@ let describeAddress (setup : CallSetup) (a : uint32) =
 
 let private formatValue t (v : int64) =
     match t with
-    | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char v)
+    | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char (int v))
     | CIntT CBool -> if v = 0L then "false" else "true"
     | _ when v < 0L -> sprintf "%d (0x%X)" v (uint32 (v &&& 0xFFFFFFFFL))
     | _ -> sprintf "%d (0x%X)" v v

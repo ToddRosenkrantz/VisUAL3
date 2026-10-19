@@ -225,9 +225,13 @@ let handleTest (pInfo : RunInfo) =
            []
 
 /// Update GUI after a runtime error or exit. Highlight error line (and make it visible).
+/// Called whenever a run stops (end, error, break or step limit): set by the C call panel
+let mutable runEndHook : RunInfo -> unit = ignore
+
 /// Set suitable error message hover. Update GUI to 'finished' state on program exit.
 /// If running a testbench check results on finish and start next test if passed.
 let UpdateGUIFromRunState(pInfo : RunInfo) =
+    runEndHook pInfo
     let getCodeLineMess pInfo =
         match pInfo.LastDP with
         | None -> ""
@@ -375,7 +379,9 @@ let rec asmStepDisplay (breakc : BreakCondition) steps ri' =
                 if ri.StepsDone < slowDisplayThreshold || (ri.StepsDone - lastDisplayStepsDone) > maxStepsBeforeSlowDisplay then
                     lastDisplayStepsDone <- ri.StepsDone
                     showInfoFromCurrentMode()
-                if running && (int64 Refs.vSettings.SimulatorMaxSteps) <> 0L then showVexAlert (loopMessage())
+                if running && (int64 Refs.vSettings.SimulatorMaxSteps) <> 0L then
+                    runEndHook ri'
+                    showVexAlert (loopMessage())
             | PSError e -> // Something went wrong causing a run-time error
                 UpdateGUIFromRunState ri'
             | PSBreak // execution met a valid break condition
@@ -535,6 +541,24 @@ let runTestbenchOnCode() =
 
 let startTest test =
     runThingOnCode (fun () -> runTests true [ test ] (asmStepDisplay NoBreak))
+
+/// Start a call prepared by CCall.prepareCall from the code in the current tab.
+/// stepInto: pause at the first instruction of the function instead of running to the return.
+let startCCall (ri : RunInfo) (stepInto : bool) =
+    resetEmulator()
+    removeEditorDecorations currentFileTabId
+    disableEditors()
+    if stepInto then
+        setCurrentModeActiveFromInfo RunState.Paused ri
+        showInfoFromCurrentMode()
+        highlightCurrentAndNextIns "editor-line-highlight" ri currentFileTabId
+    else
+        let steps =
+            match int64 Refs.vSettings.SimulatorMaxSteps with
+            | n when n > 0L -> n
+            | _ -> System.Int64.MaxValue
+        setCurrentModeActiveFromInfo RunState.Running ri
+        asmStepDisplay NoBreak steps ri
 
 /// Top-level simulation execute
 /// If current tab is TB run TB if this is possible

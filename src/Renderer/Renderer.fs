@@ -105,7 +105,9 @@ let init() =
 
     mapClickAttacher viewToIdTab Refs.viewTab (fun view ->
         console.log (sprintf "View changed to %A" view) |> ignore
-        Views.setView view :> obj
+        Views.setView view
+        if view = CCall then CCallView.render ()
+        null
     )
 
     (Refs.byteViewBtn).addEventListener_click(fun _ ->
@@ -134,6 +136,7 @@ let init() =
     Editors.updateAllEditors false
 
     Tooltips.addFixedToolTips()
+    Integration.runEndHook <- CCallView.onRunEnd
 
 
 /// top-level function that runs the renderer code

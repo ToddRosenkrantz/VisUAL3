@@ -1,4 +1,4 @@
-/// Smoke tests for the emulator. Dependency-free so the same file runs on
+﻿/// Smoke tests for the emulator. Dependency-free so the same file runs on
 /// .NET (dotnet run) and as Fable-compiled JavaScript under Node.
 module EmulatorTests
 
@@ -807,7 +807,7 @@ sum_array:
 let cTests : (string * (unit -> string list)) list = [
     "prototype: pointer and value", fun () -> protoIs "extern int sum_array(const int *a, int n);" "int sum_array(const int * a, int n)"
     "prototype: (void), unnamed, char/short/unsigned", fun () ->
-        protoIs "unsigned char g(char, signed char c, short s, unsigned u, uint16_t w)" "char g(char arg1, signed char c, short s, unsigned int u, unsigned short w)"
+        protoIs "unsigned char g(char, signed char c, short s, unsigned u, uint16_t w)" "unsigned char g(char arg1, signed char c, short s, unsigned int u, unsigned short w)"
         @ protoIs "void f(void)" "void f()"
     "prototype: arrays, pointer to pointer, return pointer", fun () ->
         protoIs "int *h(int a[], char **argv, const char *const s)" "int * h(int * a, char * * argv, const char * s)"
@@ -842,6 +842,10 @@ let cTests : (string * (unit -> string list)) list = [
         | Ok(setup, _) -> expectEq "argument words" setup.ArgWords [ 0xFFFFFFFFu; 0xFFFFFFFEu; 200u; 0xFFFFu ]
         | Error e -> [ e ]
     "call: char literal argument", fun () -> returns "@ C: int id(char c)\n.global id\nid: bx lr" [ "'A'" ] 65L 0
+    "call: char result shown as character", fun () ->
+        match cCall "@ C: char next(char c)\n.global next\nnext: add r0, r0, #1\nbx lr" [ "'A'" ] with
+        | Ok(_, res) -> expectEq "return text" res.ReturnText "66 'B'"
+        | Error e -> [ e ]
     "call: signed return decoded", fun () -> returns "@ C: int neg(int x)\n.global neg\nneg: rsb r0, r0, #0\nbx lr" [ "5" ] -5L 0
     "call: unsigned return decoded", fun () -> returns "@ C: unsigned big(void)\n.global big\nbig: mvn r0, #0\nbx lr" [] 4294967295L 0
 

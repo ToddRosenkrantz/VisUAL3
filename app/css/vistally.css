@@ -1,6 +1,7 @@
 
 :root {
     --dashboard-width-init-other: 350px; /* normal viewer width */
+    --dashboard-width-call: 460px; /* C call panel */
     --dashboard-width-init-registers: 350px; /* normal viewer width for registers view. NB reducing this mucks up tooltips */
     --dashboard-width-binrep: 500px; /* wider viewer width needed for binary */
     /* dashboard-width depends on viewer content and is set from F# when view 
@@ -452,3 +453,35 @@ div.after {
     fill: blue;
 }
 
+
+/* ---------------------------- C Call panel (CCallView.fs) ---------------------------- */
+.ccall { padding: 8px 10px; overflow-y: auto; height: 100%; box-sizing: border-box; font-size: 13px; }
+.ccall pre { font-family: "Fira Code", monospace; font-size: 12px; background: #f4f4f4; border: 1px solid #ccc;
+             border-radius: 4px; padding: 6px; white-space: pre-wrap; margin: 4px 0; }
+.ccall-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ccall-title { font-weight: bold; font-size: 14px; }
+.ccall-chooser { margin: 4px 0; }
+.ccall-signature { font-family: "Fira Code", monospace; font-size: 13px; background: #fff; border: 1px solid #bbb;
+                   border-radius: 4px; padding: 5px 7px; margin: 6px 0; word-break: break-word; }
+.ccall-params { width: 100%; border-collapse: collapse; margin: 4px 0; }
+.ccall-params th { text-align: left; font-weight: normal; color: #555; font-size: 12px; padding: 2px 4px; }
+.ccall-params td { padding: 3px 4px; vertical-align: top; }
+.ccall-loc { font-family: "Fira Code", monospace; color: #1a5fa0; white-space: nowrap; }
+.ccall-param { font-family: "Fira Code", monospace; white-space: nowrap; }
+.ccall-ptr { display: flex; flex-direction: column; gap: 3px; }
+.ccall-input { width: 100%; box-sizing: border-box; font-family: "Fira Code", monospace; font-size: 12px; padding: 3px 5px; }
+.ccall-buttons { margin: 8px 0; display: flex; gap: 6px; }
+.ccall-call { font-weight: bold; }
+.ccall-result { background: #fff; border: 1px solid #bbb; border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
+.ccall-ok { color: #1d7a1d; font-weight: bold; }
+.ccall-warn { color: #9a6700; font-weight: bold; margin: 4px 0; }
+.ccall-err { color: #b3261e; font-weight: bold; margin: 4px 0; }
+.ccall-return { font-family: "Fira Code", monospace; font-size: 14px; margin: 4px 0; }
+.ccall-raw { font-family: "Fira Code", monospace; color: #666; font-size: 12px; }
+.ccall-buf-head { font-family: "Fira Code", monospace; margin-top: 8px; font-weight: bold; font-size: 12px; }
+.ccall-buf { border-collapse: collapse; margin: 3px 0; font-family: "Fira Code", monospace; font-size: 12px; }
+.ccall-buf th, .ccall-buf td { border: 1px solid #ccc; padding: 1px 8px; text-align: right; }
+.ccall-changed td { background: #fff3c4; font-weight: bold; }
+.ccall-problem { color: #9a6700; margin: 3px 0; }
+.ccall-history { max-height: 160px; overflow-y: auto; }
+.ccall-help p { margin: 6px 0; }
