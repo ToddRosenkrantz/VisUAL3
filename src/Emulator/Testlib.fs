@@ -153,7 +153,7 @@ let initTestDP (mm : DataMemory, symTab : Expressions.SymbolTable) test =
         | _, _ -> Ok dp
     let addSpecBound dpRes spec = match dpRes with | Ok dp -> addSpec dp spec | e -> e
     List.fold addSpecBound (Ok rMap') ldSpecs
-    |> Result.map (setReg R14 0xFFFFFFFCu)
+    |> Result.map (setReg R14 returnToCaller)
 
 
 
@@ -415,7 +415,7 @@ let displayError { Actual = u : uint32; Check = check : tbCheck; Spec = spec : T
 /// messages: list of lines suitable for testbench buffer insertion
 /// dp: DataPath after test simulation ends.
 let computeTestResults (test : Test) (dp : DataPath) =
-    let subRet = dp.Regs.[R15] = 0xFFFFFFFCu
+    let subRet = dp.Regs.[R15] = returnToCaller
     let errorLines =
         checkTestResults test dp subRet
         |> List.map displayError

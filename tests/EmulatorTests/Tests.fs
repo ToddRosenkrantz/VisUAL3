@@ -27,6 +27,7 @@ let run (code : string) =
         let ri = getRunInfoFromImageWithInits NoBreak lim initialRegMap fl Map.empty lim.Mem
         let ri' = asmStep 100000L ri
         match ri'.State with
+        | PSError Errors.TBEXIT -> Ok (fst ri'.dpCurrent) // returned from top level
         | PSError e -> Error (sprintf "run error: %A" e)
         | _ -> Ok (fst ri'.dpCurrent)
 
@@ -693,7 +694,46 @@ let branchTests = [
     "blx is not implemented", "blx lr", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests
+let topLevelReturnTests = [
+    "LR starts as the return-to-caller address", "mov r0, lr", [ Reg (R0, returnToCaller) ]
+    "top-level bx lr ends the program",
+    """    mov r0, #1
+           bx lr
+           mov r0, #2""",
+    [ Reg (R0, 1u); Reg (R15, returnToCaller) ]
+    "top-level mov pc, lr ends the program",
+    """    mov r0, #3
+           mov pc, lr
+           mov r0, #4""",
+    [ Reg (R0, 3u); Reg (R15, returnToCaller) ]
+    "top-level push {lr} ... pop {pc} ends the program",
+    """    push {r4, lr}
+           mov r4, #9
+           mov r0, r4
+           pop {r4, pc}
+           mov r0, #5""",
+    [ Reg (R0, 9u); Reg (R4, 0u); Reg (R13, initStackPointer); Reg (R15, returnToCaller) ]
+    "function first in .text, called by nothing, returns cleanly",
+    """    .global add3
+       add3:
+           add r0, r0, #3
+           bx lr
+       helper:
+           mov r0, #99
+           bx lr""",
+    [ Reg (R0, 3u); Reg (R15, returnToCaller) ]
+    "conditional top-level return",
+    """    mov r0, #0
+           cmp r0, #0
+           bxne lr
+           mov r1, #1
+           bxeq lr
+           mov r1, #2""",
+    [ Reg (R1, 1u); Reg (R15, returnToCaller) ]
+    "falling off the end still ends normally", "mov r0, #6", [ Reg (R0, 6u); Reg (R14, returnToCaller) ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests
 
 [<EntryPoint>]
 let main _ =

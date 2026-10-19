@@ -56,6 +56,10 @@ let maxProgramCacheSize = 100
 
 let mutable minDataStart : uint32 = 0x200u
 
+/// Initial LR, and the address testbenches return to: a branch here ends the run
+/// normally (TBEXIT), so "bx lr" / "mov pc, lr" / "pop {pc}" at top level ends the program.
+let returnToCaller = 0xFFFFFFFCu
+
 type ErrResolveBase = { lineNumber : uint32; error : ParseError }
 
 /// Used to track current code and data section load position when loading
@@ -461,8 +465,8 @@ let dataPathStep (dp : DataPath, code : CodeMemory<CondInstr * int>) =
     let noFlagChange = Result.map (fun d -> d, uFl)
     let thisInstr = Map.tryFind (WA pc) code
     match thisInstr with
-    | None when pc = 0xFFFFFFFCu ->
-        (// special case to implement testbenches, terminate on branch to 0xFFFFFFFC
+    | None when pc = returnToCaller ->
+        (// returned from top level (or from a testbench subroutine call)
         -1, None), Error TBEXIT
     | None ->
         (-1, None), (NotInstrMem pc |> Error)
@@ -586,10 +590,13 @@ let asmStep (numSteps : int64) (ri : RunInfo) =
 /// Sensible initial value of R13 so that code with subroutines works as expected
 let initStackPointer = 0xff000000u
 
-/// initial value of all registers (note special case for SP R13)
+/// initial value of all registers (note special cases for SP R13 and LR R14)
 let initialRegMap : Map<CommonData.RName, uint32> =
     [ 0..15 ]
-    |> List.map (CommonData.register >> function | R13 -> R13, initStackPointer | rn -> rn, 0u)
+    |> List.map (CommonData.register >> function
+        | R13 -> R13, initStackPointer
+        | R14 -> R14, returnToCaller
+        | rn -> rn, 0u)
     |> Map.ofList
 
 /// Return initial RunInfo context from a LoadImage
