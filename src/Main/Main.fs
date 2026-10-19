@@ -65,6 +65,9 @@ let createMainWindow () =
             createObj [
                 "width" ==> 1200
                 "height" ==> 800
+                // smallest size at which the toolbar fits on one row beside the widest dashboard view
+                "minWidth" ==> 860
+                "minHeight" ==> 600
                 "show" ==> false
                 "frame" ==> true
                 "hasShadow" ==> true
@@ -81,7 +84,8 @@ let createMainWindow () =
         let window = createNew electron?BrowserWindow options
         remoteMain?enable (window?webContents) |> ignore
         if hasDebugArgs() then
-            window?webContents?openDevTools () |> ignore
+            // detached, so the dev tools do not take width from the app
+            window?webContents?openDevTools (createObj [ "mode" ==> "detach" ]) |> ignore
             // echo renderer console output and failures to the terminal
             window?webContents?on ("console-message", fun (e : obj) (level : obj) (msg : obj) (line : obj) (src : obj) ->
                 // Electron 35+: details are properties of the event; older: positional arguments
