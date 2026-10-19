@@ -10,7 +10,7 @@ open EEExtensions
 open Refs
 open Fable.PowerPack
 
-type CodeType = DP3 | DP2 | CMP | MUL | LDRSTR | LDMSTM | MISC | EQU | UNIMPLEMENTED
+type CodeType = DP3 | DP2 | CMP | MUL | LDRSTR | LDMSTM | STACK | MISC | EQU | UNIMPLEMENTED
 
 
 let opCodeData = [
@@ -32,6 +32,8 @@ let opCodeData = [
     "STR","load memory word or byte at address 'EA' into Rd. Optionally update Rb.", LDRSTR
     "LDM","load multiple registers from memory", LDMSTM
     "STM","store multiple registers to memory", LDMSTM
+    "PUSH","push registers onto the stack (STMFD SP!, {list})", STACK
+    "POP","pop registers from the stack (LDMFD SP!, {list})", STACK
     "FILL", "allocate op1 data bytes. Op1 must be divisible by 4. Fill words with 0.", MISC
     "DCD","allocate data words as specified by op1,...opn",MISC
     "DCB","allocate data bytes as specified by op1,...,opn. The number of operand must be divisible by 4",MISC
@@ -115,6 +117,19 @@ let makeLDMSTMHover opc func =
 **LDMIB R10, {R2-R9,R11}**
 """    opc func
 
+let makeSTACKHover opc func =
+    sprintf """
+*%s {register-list};  %s*
+
+**PUSH {R4, LR}**
+
+**POP {R4, PC}**
+
+**PUSH {R0-R3, R12}**
+
+*The lowest register is always at the lowest address.*
+"""    opc func
+
 let makeMISCHover opc func = 
     let initLine =
         match opc with
@@ -191,6 +206,7 @@ let getOpcHover mess opc line =
         | MISC -> mess + makeMISCHover opc legend
         | LDRSTR -> mess + makeLDRSTRHover opc legend
         | LDMSTM -> mess + makeLDMSTMHover opc legend
+        | STACK -> mess + makeSTACKHover opc legend
         | EQU -> mess + makeEQUHover opc legend 
         | UNIMPLEMENTED -> unimplementedHover opc
         |> (fun s -> [s])

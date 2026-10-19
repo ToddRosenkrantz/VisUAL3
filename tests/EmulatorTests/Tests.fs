@@ -340,7 +340,81 @@ let noFloatTests = [
     [ Reg (R0, 1u) ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests
+let stackTests = [
+    "PUSH / POP round trip",
+    """MOV R1, #1
+       MOV R2, #2
+       MOV R3, #3
+       PUSH {R1-R3}
+       POP {R4-R6}""",
+    [ Reg (R4, 1u); Reg (R5, 2u); Reg (R6, 3u); Reg (R13, initStackPointer) ]
+
+    "PUSH memory layout (lowest register at lowest address)",
+    """MOV R1, #0x11
+       MOV R2, #0x22
+       PUSH {R2, R1}""",
+    [ Reg (R13, initStackPointer - 8u); Mem (initStackPointer - 8u, 0x11u); Mem (initStackPointer - 4u, 0x22u) ]
+
+    "single register PUSH / POP",
+    """MOV R0, #42
+       PUSH {R0}
+       MOV R0, #0
+       POP {R1}""",
+    [ Reg (R1, 42u); Reg (R13, initStackPointer) ]
+
+    "nested calls with PUSH {LR} / POP {PC}",
+    """          MOV R4, #1
+                  BL OUTER
+                  B DONE
+       OUTER      PUSH {R4, LR}
+                  MOV R4, #2
+                  BL INNER
+                  ADD R0, R0, R4
+                  POP {R4, PC}
+       INNER      PUSH {R4, LR}
+                  MOV R4, #10
+                  MOV R0, R4
+                  POP {R4, PC}
+       DONE       MOV R5, R4""",
+    [ Reg (R0, 12u); Reg (R5, 1u); Reg (R13, initStackPointer) ]
+
+    "lowercase push / pop",
+    """          mov r4, #7
+                  bl fn
+                  b done
+       fn         push {r4, lr}
+                  mov r4, #9
+                  pop {r4, pc}
+       done       mov r0, r4""",
+    [ Reg (R0, 7u) ]
+
+    "conditional PUSH / POP",
+    """MOV R0, #1
+       CMP R0, #1
+       PUSHNE {R0}
+       PUSHEQ {R0, R1}
+       POPEQ {R2, R3}""",
+    [ Reg (R2, 1u); Reg (R13, initStackPointer) ]
+
+    "PUSH needs braces", "PUSH R0", [ ParseError ]
+    "POP rejects duplicates", "POP {R1, R1}", [ ParseError ]
+    "PUSH rejects SP", "PUSH {SP}", [ ParseError ]
+
+    "LDM / STM without suffix mean IA",
+    """      ADR R0, DATA
+              MOV R1, #5
+              MOV R2, #6
+              STM R0, {R1, R2}
+              LDM R0!, {R3, R4}
+              ADR R5, DATA
+              SUB R6, R0, R5
+       DATA   FILL 8""",
+    [ Reg (R3, 5u); Reg (R4, 6u); Reg (R6, 8u) ]
+
+    "LDRIA rejected (not a crash)", "LDRIA R0, {R1}", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests
 
 [<EntryPoint>]
 let main _ =

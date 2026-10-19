@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.Memory
@@ -79,8 +79,16 @@ module Memory
 
     let memSpecMultiple = {
         InstrC = MEM
-        Roots = [ "LDR"; "STR"; "STM"; "LDM" ]
-        Suffixes = [ "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ]
+        Roots = [ "STM"; "LDM" ]
+        // "" is IA (ARMv7 UAL)
+        Suffixes = [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ]
+    }
+
+    /// PUSH {list} = STMDB SP!, {list}; POP {list} = LDMIA SP!, {list}
+    let memSpecStack = {
+        InstrC = MEM
+        Roots = [ "PUSH"; "POP" ]
+        Suffixes = [ "" ]
     }
 
 
@@ -100,7 +108,7 @@ module Memory
     /// map of all possible opcodes recognised
     let opCodes =
         let toArr = opCodeExpand >> Map.toArray
-        Array.collect toArr [| memSpecSingle; memSpecMultiple |]
+        Array.collect toArr [| memSpecSingle; memSpecMultiple; memSpecStack |]
         |> Map.ofArray
 
 
@@ -260,8 +268,8 @@ module Memory
             |> (fun pa -> { pa with PStall = match uRoot with | "LDR" -> 2 | "STR" -> 1 | _ -> 0 })
 
 
-        /// parse for LDM, STM
-        let parseMult (root : string) suffix pCond : Parse<Instr> =
+        /// parse for LDM, STM (operands: "Rn{!}, {reglist}")
+        let parseMult (root : string) suffix pCond (operands : string) : Parse<Instr> =
 
             /// For matching the list of regs
             let (|RegListMatch|_|) (str : string) =
@@ -301,7 +309,7 @@ module Memory
                 | _ -> None
 
             /// split the operands at a {
-            let splitMult = splitAny ls.Operands '{'
+            let splitMult = splitAny operands '{'
 
             let checkMultSuffix = function
                 | "IA" -> IA |> Ok
@@ -316,7 +324,7 @@ module Memory
                 | x -> makeParseError "Valid LDM/STM suffix IA,IB,DA,DB,FD,ED,FA,EA" x "list#multiple-register-memory-transfer-instructions"
 
             let ops =
-                match true, false, ls.Operands with
+                match true, false, operands with
                 | wb, _, REGMATCH(rOp1, (REMOVEPREFIX "!" (REMOVEPREFIX "," (BRACKETED '{' '}' (rl, TRIM "")))))
                 | _, wb, REGMATCH(rOp1, (REMOVEPREFIX "," (BRACKETED '{' '}' (rl, TRIM "")))) ->
 
@@ -349,7 +357,7 @@ module Memory
                     |> Result.map (consMemMult wb rOp1)
                     |> mapErrorApplyResult (checkMultSuffix suffix)
                 | _ ->
-                    makeParseError "valid LDM/STM operands" ls.Operands "list#single-register-memory-transfer-instructions"
+                    makeParseError "valid LDM/STM operands" operands "list#single-register-memory-transfer-instructions"
 
             copyParse ls (Result.map memTypeMultMap.[root] ops) pCond
             |> (fun pa -> { pa with PStall = let rootStall = match root with | "LDM" -> 1 | _ -> 0
@@ -359,13 +367,20 @@ module Memory
             let uRoot = root.ToUpper()
             let uSuffix = suffix.ToUpper()
             let singleSuffix = match uSuffix with | "" | "B" -> true | _ -> false
+            /// PUSH/POP: register list in braces only, base is always SP with writeback
+            let parseStack mRoot =
+                match ls.Operands.Trim() with
+                | ops when ops.StartsWith "{" -> parseMult mRoot "FD" pCond ("R13!, " + ops)
+                | ops -> copyParse ls (makeParseError (sprintf "%s {register-list}" uRoot) ops "") pCond
             match singleSuffix, uRoot with
             | true, "LDR" when String.exists ((=) '=') ls.Operands && uSuffix = ""
                 -> parseLoad32 pCond
             | true, "LDR" -> parseSingle LOAD uRoot uSuffix pCond
             | true, "STR" -> parseSingle STORE uRoot uSuffix pCond
-            | false, "LDM" -> parseMult uRoot uSuffix pCond
-            | false, "STM" -> parseMult uRoot uSuffix pCond
+            | _, "LDM" -> parseMult uRoot uSuffix pCond ls.Operands
+            | _, "STM" -> parseMult uRoot uSuffix pCond ls.Operands
+            | _, "PUSH" -> parseStack "STM"
+            | _, "POP" -> parseStack "LDM"
             | _ -> failwithf "What? We appear to have an impossible memory root and suffix: %s %s" root suffix
 
         Map.tryFind (uppercase ls.OpCode) opCodes
