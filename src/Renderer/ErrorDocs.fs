@@ -1,4 +1,4 @@
-(* 
+﻿(* 
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.ErrorDocs
@@ -10,7 +10,7 @@ open EEExtensions
 open Refs
 open Fable.PowerPack
 
-type CodeType = DP3 | DP2 | CMP | LDRSTR | LDMSTM | MISC | EQU | UNIMPLEMENTED
+type CodeType = DP3 | DP2 | CMP | MUL | LDRSTR | LDMSTM | MISC | EQU | UNIMPLEMENTED
 
 
 let opCodeData = [
@@ -26,6 +26,8 @@ let opCodeData = [
     "CMN","set NZCV on op1 + op2", CMP
     "TST","set NZ on op1 bitwise AND op2", CMP
     "TEQ","set NZ on op1 bitwise XOR op2", CMP
+    "MUL","dest := op1 * op2 (low 32 bits). S suffix sets NZ only", MUL
+    "MLA","dest := op1 * op2 + op3 (low 32 bits). S suffix sets NZ only", MUL
     "LDR","load memory word or byte at address 'EA' into Rd. Optionally update Rb.", LDRSTR
     "STR","load memory word or byte at address 'EA' into Rd. Optionally update Rb.", LDRSTR
     "LDM","load multiple registers from memory", LDMSTM
@@ -154,6 +156,15 @@ let makeDPHover3 (opc,sfts) func =
 
 """     opc func  opc opc opc opc (makeShiftModes sfts)
 
+let makeMULHover opc func =
+    let ops, examples =
+        match String.toUpper opc with
+        | o when o.StartsWith "MLA" -> "dest, op1, op2, op3", [ "R0, R1, R2, R3"; "R4, R4, R5, R6" ]
+        | _ -> "dest, op1, op2", [ "R0, R1, R2"; "R4, R4, R4"; "R3, R5" ]
+    sprintf "\n*%s %s;  %s*\n\n" opc ops func
+    + (examples |> List.map (sprintf "**%s %s**\n\n" opc) |> String.concat "")
+    + "*All operands must be registers (not R15).*\n"
+
 let unimplementedHover opc =
     sprintf " '%s': There is a problem with this instruction" opc
 
@@ -168,7 +179,7 @@ let getOpcHover mess opc line =
     let lineContains lst = List.tryFind (fun sft -> String.contains sft uLine) lst
     let isShift = lineContains [" LSL";" LSR";" ASR";" ROR"]
     let isRRX = lineContains [" RRX"]
-    let isBadShift = lineContains [" ASL ";" ROL "; " RRL "]
+    let isBadShift = lineContains [" ROL "; " RRL "]
     let _, legend,typ = getRoot opc
     let opc' = opc,(isShift,isRRX,isBadShift)
     let hoverText =
@@ -176,6 +187,7 @@ let getOpcHover mess opc line =
         | DP3 -> mess + makeDPHover3 opc' legend
         | DP2 -> mess + makeDPHover2 opc' legend
         | CMP -> mess + makeCMPHover opc' legend
+        | MUL -> mess + makeMULHover opc legend
         | MISC -> mess + makeMISCHover opc legend
         | LDRSTR -> mess + makeLDRSTRHover opc legend
         | LDMSTM -> mess + makeLDMSTMHover opc legend

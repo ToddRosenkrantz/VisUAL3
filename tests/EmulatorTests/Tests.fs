@@ -9,6 +9,8 @@ type Expect =
     | Reg of RName * uint32
     | Flags of n : bool * z : bool * c : bool * v : bool
     | Mem of uint32 * uint32
+    /// the program must be rejected by the assembler
+    | ParseError
 
 /// Assemble and run `code` (one instruction per line) to completion.
 let run (code : string) =
@@ -33,6 +35,7 @@ let check (dp : DataPath) expect =
         let f = dp.Fl
         if (f.N, f.Z, f.C, f.V) = (n, z, c, v) then None
         else Some (sprintf "NZCV = %A, expected %A" (f.N, f.Z, f.C, f.V) (n, z, c, v))
+    | ParseError -> Some "expected a parse error"
     | Mem (a, v) ->
         match Map.tryFind (WA a) dp.MM with
         | Some (Dat d) when d = v -> None
@@ -161,11 +164,181 @@ let tests : (string * string * Expect list) list = [
     [ Reg (R3, 7u); Reg (R4, 8u) ]
 ]
 
+let mulTests = [
+    "MUL basic",
+    """MOV R0, #6
+       MOV R1, #7
+       MUL R2, R0, R1""",
+    [ Reg (R2, 42u) ]
+
+    "MUL keeps low 32 bits (JS precision)",
+    """MVN R0, #0
+       MUL R1, R0, R0
+       LDR R2, =0x12345678
+       LDR R3, =0x9ABCDEF0
+       MUL R4, R2, R3
+       LDR R5, =0xFFFF
+       MUL R6, R5, R5""",
+    [ Reg (R1, 1u); Reg (R4, 0x242D2080u); Reg (R6, 0xFFFE0001u) ]
+
+    "MUL Rd = Rn and two-operand form",
+    """MOV R0, #5
+       MUL R0, R0, R0
+       MOV R1, #3
+       MUL R0, R1""",
+    [ Reg (R0, 75u) ]
+
+    "MUL lowercase",
+    """mov r0, #9
+       mov r1, #9
+       mul r2, r0, r1""",
+    [ Reg (R2, 81u) ]
+
+    "MULS sets Z, keeps C and V",
+    """MOV R0, #1
+       CMP R0, R0
+       MOV R1, #0
+       MULS R2, R0, R1""",
+    [ Reg (R2, 0u); Flags (false, true, true, false) ]
+
+    "MULS sets N, keeps V",
+    """LDR R0, =0x7FFFFFFF
+       ADDS R0, R0, #1
+       MOV R1, #0x80000000
+       MOV R2, #3
+       MULS R3, R1, R2""",
+    [ Reg (R3, 0x80000000u); Flags (true, false, false, true) ]
+
+    "MUL without S leaves flags",
+    """MOV R0, #2
+       CMP R0, R0
+       MUL R1, R0, R0""",
+    [ Reg (R1, 4u); Flags (false, true, true, false) ]
+
+    "MLA basic and wraparound",
+    """MOV R0, #3
+       MOV R1, #4
+       MOV R2, #5
+       MLA R3, R0, R1, R2
+       MVN R4, #0
+       MOV R5, #2
+       MLA R6, R4, R5, R2""",
+    [ Reg (R3, 17u); Reg (R6, 3u) ]
+
+    "MLAS sets Z",
+    """MVN R0, #0
+       MOV R1, #1
+       MOV R2, #1
+       MLAS R3, R0, R1, R2""",
+    [ Reg (R3, 0u); Flags (false, true, false, false) ]
+
+    "conditional MUL / MLA",
+    """MOV R0, #2
+       CMP R0, #2
+       MULNE R1, R0, R0
+       MLAEQ R2, R0, R0, R0""",
+    [ Reg (R1, 0u); Reg (R2, 6u) ]
+
+    "MUL rejects literal", "MUL R0, R1, #3", [ ParseError ]
+    "MUL rejects PC", "MUL R15, R0, R1", [ ParseError ]
+    "MLA needs four operands", "MLA R0, R1, R2", [ ParseError ]
+]
+
+let shiftTests = [
+    "op2 LSR #32 / ASR #32",
+    """LDR R1, =0x80000011
+       MOVS R0, R1, LSR #32
+       MOV R2, R1, ASR #32""",
+    [ Reg (R0, 0u); Reg (R2, 0xFFFFFFFFu); Flags (false, true, true, false) ]
+
+    "ASRS R0, R1, #32 sets N and C",
+    """LDR R1, =0x80000011
+       ASRS R0, R1, #32""",
+    [ Reg (R0, 0xFFFFFFFFu); Flags (true, false, true, false) ]
+
+    "LSRS #32 standalone",
+    """LDR R1, =0x80000011
+       LSRS R0, R1, #32""",
+    [ Reg (R0, 0u); Flags (false, true, true, false) ]
+
+    "ASL synonym in op2",
+    """LDR R1, =0x80000011
+       MOV R0, R1, ASL #2
+       ADD R2, R0, R0, asl #1""",
+    [ Reg (R0, 0x44u); Reg (R2, 0xCCu) ]
+
+    "two-operand LSL / LSR / ASR / ROR / RRX",
+    """LDR R1, =0x80000011
+       LSL R1, #4
+       MOV R2, #0x100
+       MOV R3, #4
+       LSR R2, R3
+       MVN R4, #0
+       ASR R4, #8
+       LDR R5, =0x12345678
+       ROR R5, #8
+       MOV R6, #3
+       CMP R6, R6
+       RRX R6""",
+    [ Reg (R1, 0x110u); Reg (R2, 0x10u); Reg (R4, 0xFFFFFFFFu); Reg (R5, 0x78123456u); Reg (R6, 0x80000001u) ]
+
+    "optional Rd for data processing",
+    """MOV R0, #5
+       ADD R0, #3
+       MOV R1, #2
+       ADD R0, R1
+       ADD R0, R1, LSL #2
+       SUB R0, R1, lsl #1
+       ORR R0, #0x100
+       EOR R0, R1, ROR R1""",
+    [ Reg (R0, 0x8000010Eu) ]
+
+    "register shift uses bottom byte",
+    """MOV R0, #1
+       LDR R2, =0x101
+       MOV R3, R0, LSL R2""",
+    [ Reg (R3, 2u) ]
+
+    "LSLS by register 32 and 33",
+    """LDR R1, =0x80000011
+       MOV R2, #32
+       LSLS R3, R1, R2
+       MOV R4, #33
+       MOVS R5, R1, LSL R4""",
+    [ Reg (R3, 0u); Reg (R5, 0u); Flags (false, true, false, false) ]
+
+    "LSR / ASR / ROR by register >= 32",
+    """LDR R1, =0x80000011
+       MOV R2, #32
+       MOVS R3, R1, LSR R2
+       MOV R4, #40
+       MOVS R5, R1, ASR R4
+       MOVS R6, R1, ROR R2
+       MOV R7, #36
+       MOVS R8, R1, ROR R7""",
+    [ Reg (R3, 0u); Reg (R5, 0xFFFFFFFFu); Reg (R6, 0x80000011u); Reg (R8, 0x18000001u)
+      Flags (false, false, false, false) ]
+
+    "shift by register 0 leaves carry",
+    """MOV R0, #1
+       CMP R0, R0
+       MOV R2, #0
+       MOVS R3, R0, LSR R2""",
+    [ Reg (R3, 1u); Flags (false, false, true, false) ]
+
+    "LSL #32 rejected", "LSL R0, R1, #32", [ ParseError ]
+    "ROR #32 rejected", "MOV R0, R1, ROR #32", [ ParseError ]
+    "LSR #33 rejected", "MOV R0, R1, LSR #33", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests
+
 [<EntryPoint>]
 let main _ =
     let mutable failed = 0
-    for (name, code, expects) in tests do
+    for (name, code, expects) in allTests do
         match run code with
+        | Error e when expects = [ ParseError ] && e.StartsWith "parse errors" -> printfn "pass %s" name
         | Error e ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name e
@@ -175,5 +348,5 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    printfn "%d/%d passed" (tests.Length - failed) tests.Length
+    printfn "%d/%d passed" (allTests.Length - failed) allTests.Length
     if failed = 0 then 0 else 1

@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.DP
@@ -124,7 +124,8 @@ let evalOp2 op2 d =
     | NumberLiteral(l, rot, sub) -> evalNumberLiteral l (uint32 rot) sub d.Fl.C // carry possibly is changed
     | RegisterWithShift(rSrc, shiftType, shiftBy) -> evalShift d.Regs.[rSrc] shiftType shiftBy
     | RegisterWithRRX rSrc -> evalRrx d.Regs.[rSrc] d.Fl.C
-    | RegisterWithRegisterShift(rSrc, shiftType, rShiftBy) -> evalShift d.Regs.[rSrc] shiftType d.Regs.[rShiftBy]
+    // ARM uses only the bottom byte of the shift register
+    | RegisterWithRegisterShift(rSrc, shiftType, rShiftBy) -> evalShift d.Regs.[rSrc] shiftType (d.Regs.[rShiftBy] &&& 0xFFu)
 
 
 let addNullOp2Info op2Result =
@@ -263,10 +264,22 @@ let makeOkLitMap() =
         OkLitMap <- Some map
         map
 
+/// Max immediate shift for each shift type (ARMv7: LSR and ASR allow #32)
+let maxLitShift = function | LSR | ASR -> 32u | LSL | ROR -> 31u
+
 let makeLitShift shiftStr reg shiftType (n : uint32) =
+    let maxN = maxLitShift shiftType
     match n with
-    | n when n < 32u && n >= 0u -> Ok(Op2.RegisterWithShift(reg, shiftType, n))
-    | _ -> makeDPE "Valid numeric shift value in range #0 - #31" shiftStr
+    | n when n <= maxN -> Ok(Op2.RegisterWithShift(reg, shiftType, n))
+    | _ -> makeDPE (sprintf "Valid %A shift value in range #0 - #%d" shiftType maxN) shiftStr
+
+/// Shift mnemonics allowed inside flexible op2 (ASL is the GNU as synonym for LSL)
+let shiftCodes = Map.ofList [ "LSL", LSL; "ASL", LSL; "LSR", LSR; "ASR", ASR; "ROR", ROR ]
+
+/// true if txt is an op2 shift specifier such as "LSL #2", "ror r3" or "RRX"
+let isShiftSpec (txt : string) =
+    let t = txt.Trim().ToUpper()
+    t = "RRX" || (t.Length > 3 && Map.containsKey (t.Substring(0, 3)) shiftCodes)
 
 let parseOp2 (subMode : InstrNegativeLiteralMode) (symTable : SymbolTable) (args : string list) =
     /// make ARM literal from uint32
@@ -305,9 +318,9 @@ let parseOp2 (subMode : InstrNegativeLiteralMode) (symTable : SymbolTable) (args
 
     /// apply shift expression to register
     let parseShiftExpression (str : string) reg =
-        let getShiftType str = match Map.tryFind (String.toUpper str) (Map.ofList [ "LSL", LSL; "LSR", LSR; "ASR", ASR; "ROR", ROR ]) with
+        let getShiftType str = match Map.tryFind (String.toUpper str) shiftCodes with
                                 | Some s -> Ok s
-                                | None -> makeDPE "Valid shift code LSL,LSR,ASR,ROR" str
+                                | None -> makeDPE "Valid shift code LSL,LSR,ASR,ROR,RRX" str
 
         let makeRegShift shiftType r = RegisterWithRegisterShift(reg, shiftType, r)
 
@@ -365,6 +378,11 @@ let makeTwoOpInstr hasDest subMode fn symTable operands =
 
 /// make an instruction that has the form "XXX dst, op1, flexop2"
 let makeThreeOpInstr subMode fn symTable operands =
+    // ARMv7 UAL: Rd is optional and defaults to Rn
+    let operands =
+        match operands with
+        | [ rd; _ ] | [ rd; _; _ ] when operands.Length = 2 || isShiftSpec operands.[2] -> rd :: operands
+        | _ -> operands
     match operands with
     | first :: restOfOps ->
         parseRegister first |> Result.bind (fun reg -> addDestStall reg (makeTwoOpInstr false subMode (fn reg) symTable restOfOps))
@@ -400,15 +418,13 @@ let makeArithmeticInstr subMode opType symTable operands updateFlags =
 
 /// return a ready-to-execute shift/rotate function from the given operands
 let makeShiftInstr shiftType symTable operands updateFlags =
+    // ARMv7 UAL: "LSL Rd, #n" and "LSL Rd, Rs" mean "LSL Rd, Rd, ..."
+    let operands = match operands with | [ dst; shiftBy ] -> [ dst; dst; shiftBy ] | ops -> ops
     match operands with
     | [ dst; src; shiftBy ] ->
         match parseRegister dst, parseRegister src with
         | Ok dst', Ok src' ->
             let op2 =
-                let makeLitShift' (n : uint32) =
-                    match n with
-                    | n when n < 32u && n >= 0u -> Ok(Op2.RegisterWithShift(src', shiftType, n))
-                    | _ -> makeDPE "Valid numeric shift value in range #0 - #31" shiftBy
                 let makeRegShift r = RegisterWithRegisterShift(src', shiftType, r)
                 match shiftBy with
                 | cons when cons.StartsWith("#") -> cons.Substring(1) |> parseNumberExpression symTable |> Result.bind (makeLitShift cons src' shiftType)
@@ -425,6 +441,8 @@ let makeShiftInstr shiftType symTable operands updateFlags =
 
 /// return a ready-to-execute RRX function from the given operands
 let makeRRXInstr symTable operands updateFlags =
+    // ARMv7 UAL: "RRX Rd" means "RRX Rd, Rd"
+    let operands = match operands with | [ dst ] -> [ dst; dst ] | ops -> ops
     match operands with
     | [ dst; src ] ->
         match parseRegister dst, parseRegister src with
@@ -433,6 +451,45 @@ let makeRRXInstr symTable operands updateFlags =
         | _, Error e -> Error e
 
     | _ -> makeDPE "destination, source" (String.concat "," operands)
+
+/// 32 x 32 -> low 32 bits multiply.
+/// Split into 16-bit halves so the JS (float) product never loses precision.
+let mul32 (a : uint32) (b : uint32) =
+    let aLo, aHi = a &&& 0xFFFFu, a >>> 16
+    let bLo, bHi = b &&& 0xFFFFu, b >>> 16
+    let mid = (aHi * bLo + aLo * bHi) &&& 0xFFFFu
+    trimUint32 (aLo * bLo + (mid <<< 16))
+
+/// return a ready-to-execute MUL (accumulate = false) or MLA (accumulate = true) function.
+/// MUL Rd, Rn {, Rm} (Rm defaults to Rd); MLA Rd, Rn, Rm, Ra.
+/// S suffix updates N and Z only: C and V are unchanged (ARMv6+).
+let makeMulInstr accumulate symTable operands updateFlags =
+    let regs =
+        match accumulate, operands with
+        | false, [ rd; rn ] -> Ok [ rd; rn; rd ]
+        | false, [ _; _; _ ] -> Ok operands
+        | true, [ _; _; _; _ ] -> Ok operands
+        | false, _ -> makeDPE "destination, register, register" (String.concat "," operands)
+        | true, _ -> makeDPE "destination, register, register, accumulate register" (String.concat "," operands)
+    let parseMulReg (r : string) =
+        match parseRegister r with
+        | Ok R15 -> makeFormatError "Multiply operands cannot be PC or R15" r ""
+        | Error _ when r.StartsWith("#") -> makeFormatError "Multiply operands must be registers, not literals" r ""
+        | res -> res
+    let rec parseAll = function
+        | [] -> Ok []
+        | r :: rest -> parseMulReg r |> Result.bind (fun r' -> parseAll rest |> Result.map (fun rs -> r' :: rs))
+    regs
+    |> Result.bind parseAll
+    |> Result.map (fun rl ->
+        let rd, rn, rm = rl.[0], rl.[1], rl.[2]
+        let exec (d : DataPath) =
+            let prod = mul32 d.Regs.[rn] d.Regs.[rm]
+            let res = if accumulate then trimUint32 (prod + d.Regs.[rl.[3]]) else prod
+            let uFlags = { F = { d.Fl with N = setFlagN res; Z = setFlagZ res }; NZU = true; CU = false; VU = false; RegU = [] }
+            Ok(writeBack res rd uFlags updateFlags d)
+        // op2 field is only used for shift tooltips: an unshifted register shows none
+        destStall rd, (exec, RegisterWithShift(rm, LSL, 0u)))
 
 // ///////////// top-level parsing ///////////////////////////////
 
@@ -460,6 +517,9 @@ let spec = [
     "ASR", fun s a b -> makeShiftInstr ASR s a b
     "ROR", fun s a b -> makeShiftInstr ROR s a b
     "RRX", fun s a b -> makeRRXInstr s a b
+
+    "MUL", fun s a b -> makeMulInstr false s a b
+    "MLA", fun s a b -> makeMulInstr true s a b
 
     "CMN", fun s a b -> makeComparisonInstr NegatedLit simADD s a b
     "CMP", fun s a b -> makeComparisonInstr NegatedLit simSUB s a b
