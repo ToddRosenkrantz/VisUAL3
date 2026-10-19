@@ -331,7 +331,16 @@ let shiftTests = [
     "LSR #33 rejected", "MOV R0, R1, LSR #33", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests
+let noFloatTests = [
+    "VFP instruction rejected", "VADD.F32 S0, S1, S2", [ ParseError ]
+    "VFP instruction after label rejected", "LOOP vldr d0, [r1]", [ ParseError ]
+    "V-named label still allowed",
+    """      B VALUE
+       VALUE  MOV R0, #1""",
+    [ Reg (R0, 1u) ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests
 
 [<EntryPoint>]
 let main _ =

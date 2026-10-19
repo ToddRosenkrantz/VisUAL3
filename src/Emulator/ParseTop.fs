@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.ParseTop
@@ -117,6 +117,17 @@ module ParseTop
                 | [| x |] -> x
                 | [||] -> ""
                 | lineWithComment -> lineWithComment.[0]
+        /// VFP/NEON floating point mnemonics, e.g. VADD.F32, vldr, VPUSHEQ
+        let isVfpOpCode (opc : string) =
+            let o = opc.ToUpper()
+            [ "VADD"; "VSUB"; "VMUL"; "VDIV"; "VMLA"; "VMLS"; "VNMUL"; "VNMLA"; "VNMLS"; "VFMA"; "VFMS"
+              "VNEG"; "VABS"; "VSQRT"; "VCMP"; "VCVT"; "VMOV"; "VMRS"; "VMSR"; "VLDR"; "VSTR"
+              "VLDM"; "VSTM"; "VPUSH"; "VPOP" ]
+            |> List.exists o.StartsWith
+        /// The emulated CPU has no FPU (soft-float): floating point must use library calls
+        let noHardFloatError opc =
+            sprintf "'%s' is a hardware floating point (VFP) instruction. This emulator models an ARMv7 core without an FPU: use integer code or soft-float library calls" opc
+            |> ``Invalid instruction`` |> Error
         /// try to parse 1st word, or 2nd word, as opcode
         /// If 2nd word is opcode 1st word must be label
         let parseLine' words =
@@ -129,6 +140,10 @@ module ParseTop
                     then defParse (Some label) (EMPTY |> Ok)
                     else defParse None (``Invalid Label`` label |> Error)
                 | [ ""; "" ] -> defParse None (EMPTY |> Ok)
+                | "" :: opc :: _ when isVfpOpCode opc ->
+                    defParse None (noHardFloatError opc)
+                | "" :: _ :: opc :: _ when isVfpOpCode opc ->
+                    defParse None (noHardFloatError opc)
                 | "" :: opc :: _ ->
                     defParse None (``Unimplemented instruction`` opc |> Error)
                 | _ -> failwithf "What: should not be possible!"
