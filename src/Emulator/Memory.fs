@@ -438,9 +438,9 @@ module Memory
             |> fun (st, chg) ->
                 makeOffsetList rl [] chg (start + st)
                 |> if chg < 0 then id else List.rev
-                |> (fun lst -> lst, ( if wb then chg * lst.Length else 0)
+                |> (fun lst -> lst, (if wb then chg * lst.Length else 0))
 
-        ) List.map (fun el -> el |> uint32) lst, rDiff
+        List.map (fun el -> el |> uint32) lst, rDiff
 
     let executeMem instr (cpuData : DataPath) =
         /// get multiple memory

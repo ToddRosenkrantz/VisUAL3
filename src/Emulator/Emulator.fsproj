@@ -1,13 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>emulator</AssemblyName>
+    <WarningLevel>3</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-<Compile Include="EEExtensions.fs" />
-<Compile Include="CommonData.fs" />
-<Compile Include="Errors.fs" />
-<Compile Include="Expressions.fs" />
+    <Compile Include="EEExtensions.fs" />
+    <Compile Include="CommonData.fs" />
+    <Compile Include="Errors.fs" />
+    <Compile Include="Expressions.fs" />
     <Compile Include="CommonLex.fs" />
     <Compile Include="Helpers.fs" />
     <Compile Include="Memory.fs" />
@@ -18,5 +19,7 @@
     <Compile Include="ExecutionTop.fs" />
     <Compile Include="Testlib.fs" />
   </ItemGroup>
-  <Import Project="..\..\.paket\Paket.Restore.targets" />
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="4.3.0" />
+  </ItemGroup>
 </Project>

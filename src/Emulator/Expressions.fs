@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Emulator.Expressions
@@ -171,7 +171,7 @@ module Expressions
         // Define active patterns for the binary operators
         // Order of precedence: Add, Sub, Mul
         let (|MulExpr|_|) = (|LBinExpr|_|) (|PrimExpr|_|) "\*" (*)
-        let (|SubExpr|_|) = (|LBinExpr|_|) (|MulExpr|_|) "\-" (-)
+        let (|SubExpr|_|) = (|LBinExpr|_|) (|MulExpr|_|) "-" (-)
         let (|AddExpr|_|) = (|LBinExpr|_|) (|SubExpr|_|) "\+" (+)
 
         match expTxt with
