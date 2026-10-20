@@ -232,3 +232,4 @@ app/js/renderer.js*
 app/js/tippy.min.js
 app/js/popper.min.js
 .ionide/
+prompt.txt
