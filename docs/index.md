@@ -8,7 +8,7 @@ VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2)
 
 ## Using it
 
-Download the zip for Windows, Linux or macOS from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.2-dev](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.2-dev)), unzip it and run the program inside. The [README](../README.md) explains how, and how to get past the warnings for unsigned apps.
+Download the zip for Windows, Linux or macOS from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0-dev.3](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0-dev.3)), unzip it and run the program inside. The [README](../README.md) explains how, and how to get past the warnings for unsigned apps.
 
 The [assembly language guide](guide.md) covers the syntax, instructions and directives, and calling functions from C. It is also built into the app: **Help → Assembly language guide** (F1).
 
