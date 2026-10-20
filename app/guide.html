@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisUAL2 assembly language guide</title>
+<style>
+  @font-face { font-family: "Fira Code"; src: url("fonts/fira-code.woff") format("woff"); }
+  :root {
+    --ink: #1f2a30; --muted: #5b6b73; --rule: #d5dde0; --paper: #fbfcfc;
+    --brand: #5f9ea0;           /* the app's toolbar colour */
+    --code-bg: #002b36; --code-fg: #93a1a1;                  /* editor: solarised dark */
+    --c-kw: #268bd2; --c-reg: #2aa198; --c-num: #b58900; --c-com: #859900; --c-lab: #6c71c4; --c-dir: #d33682;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 15px/1.6 "Segoe UI", Ubuntu, "Helvetica Neue", Arial, sans-serif; }
+  header { background: var(--brand); color: #fff; padding: 18px 28px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 600; }
+  header p { margin: 4px 0 0; opacity: .9; }
+  .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; padding: 0 28px; }
+  nav { position: sticky; top: 0; align-self: start; padding: 22px 0; font-size: 14px; }
+  nav a { display: block; color: var(--muted); text-decoration: none; padding: 3px 0 3px 10px; border-left: 2px solid transparent; }
+  nav a:hover, nav a:focus-visible { color: var(--ink); border-left-color: var(--brand); outline: none; }
+  main { max-width: 72ch; padding: 10px 0 60px; }
+  h2 { font-size: 20px; margin: 34px 0 8px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  p, li { margin: 6px 0; }
+  code, pre, td.mono { font-family: "Fira Code", Consolas, monospace; font-size: 13px; }
+  p code, li code, td code { background: #eef3f4; padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }
+  pre .k { color: var(--c-kw); } pre .r { color: var(--c-reg); } pre .n { color: var(--c-num); }
+  pre .c { color: var(--c-com); } pre .l { color: var(--c-lab); } pre .d { color: var(--c-dir); }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--rule); }
+  th { color: var(--muted); font-weight: 600; }
+  .note { border-left: 3px solid var(--brand); padding: 4px 12px; color: var(--muted); }
+  a { color: #1a6d70; }
+  @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } nav { position: static; padding-bottom: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Assembly language guide</h1>
+  <p>ARMv7 (A32) code in GNU assembler syntax, as written for gcc, clang and Linux. The emulated core has no floating-point unit.</p>
+</header>
+<div class="layout">
+<nav aria-label="Contents">
+  <a href="#program">A first program</a>
+  <a href="#statements">Labels and comments</a>
+  <a href="#registers">Registers</a>
+  <a href="#instructions">Instructions</a>
+  <a href="#operand2">Operand 2 and shifts</a>
+  <a href="#addressing">Loads and stores</a>
+  <a href="#conditions">Condition codes</a>
+  <a href="#data">Data and constants</a>
+  <a href="#expressions">Expressions</a>
+  <a href="#c-calls">Calling functions from C</a>
+  <a href="#limits">Not supported</a>
+</nav>
+<main>
+
+<h2 id="program">A first program</h2>
+<pre><span class="c">@ add up the words in table</span>
+        <span class="d">.text</span>
+<span class="l">_start:</span> <span class="k">ldr</span>     <span class="r">r0</span>, =table      <span class="c">@ address of the data</span>
+        <span class="k">mov</span>     <span class="r">r1</span>, <span class="n">#4</span>          <span class="c">@ number of words</span>
+        <span class="k">mov</span>     <span class="r">r2</span>, <span class="n">#0</span>
+<span class="l">1:</span>      <span class="k">ldr</span>     <span class="r">r3</span>, [<span class="r">r0</span>], <span class="n">#4</span>  <span class="c">@ load, then step to the next word</span>
+        <span class="k">add</span>     <span class="r">r2</span>, <span class="r">r2</span>, <span class="r">r3</span>
+        <span class="k">subs</span>    <span class="r">r1</span>, <span class="r">r1</span>, <span class="n">#1</span>
+        <span class="k">bne</span>     1b             <span class="c">@ back to the local label 1:</span>
+        <span class="k">bx</span>      <span class="r">lr</span>             <span class="c">@ finished</span>
+
+        <span class="d">.data</span>
+<span class="l">table:</span>  <span class="d">.word</span>   <span class="n">10, 20, 30, -5</span></pre>
+<ul>
+  <li>Execution starts at the first instruction in <code>.text</code>.</li>
+  <li>The program ends when execution runs past the last instruction, or when it returns with <code>bx lr</code>, <code>mov pc, lr</code> or <code>pop {…, pc}</code>: LR starts at a return address that stops the run.</li>
+  <li>SP starts at <code>0xFF000000</code>. The stack is full-descending: <code>push</code> stores below SP.</li>
+  <li>Data in <code>.data</code>, <code>.rodata</code> and <code>.bss</code> is placed after the code. Uninitialised memory reads as zero.</li>
+</ul>
+
+<h2 id="statements">Labels and comments</h2>
+<ul>
+  <li>A label ends with a colon: <code>loop:</code>. It may share a line with an instruction, stand on its own line, or several labels may mark the same place. Names use letters, digits, <code>_</code>, <code>.</code> and <code>$</code>, and cannot start with a digit. Labels are case-sensitive.</li>
+  <li>Numeric local labels can be reused: <code>1:</code> is referred to as <code>1b</code> (the previous <code>1:</code>) or <code>1f</code> (the next one).</li>
+  <li>Comments: <code>@ …</code> or <code>// …</code> to the end of the line, <code>/* … */</code> across lines, and a line starting with <code>#</code>.</li>
+  <li><code>;</code> separates two statements on one line. It does not start a comment.</li>
+  <li>Mnemonics, registers and directives can be written in any case.</li>
+</ul>
+
+<h2 id="registers">Registers</h2>
+<table>
+  <tr><th>Register</th><th>Other names</th><th>Use under the C calling convention</th></tr>
+  <tr><td class="mono">r0–r3</td><td class="mono">a1–a4</td><td>Arguments and result. A function may change them.</td></tr>
+  <tr><td class="mono">r4–r11</td><td class="mono">v1–v8; r9 = sb, r10 = sl, r11 = fp</td><td>Must be preserved by a function (save and restore them).</td></tr>
+  <tr><td class="mono">r12</td><td class="mono">ip</td><td>Scratch.</td></tr>
+  <tr><td class="mono">r13</td><td class="mono">sp</td><td>Stack pointer.</td></tr>
+  <tr><td class="mono">r14</td><td class="mono">lr</td><td>Return address, set by <code>bl</code>.</td></tr>
+  <tr><td class="mono">r15</td><td class="mono">pc</td><td>Program counter. Reads as the current instruction + 8.</td></tr>
+</table>
+
+<h2 id="instructions">Instructions</h2>
+<table>
+  <tr><th>Kind</th><th>Instructions</th><th>Example</th></tr>
+  <tr><td>Arithmetic and logic</td><td class="mono">add sub rsb adc sbc rsc and orr eor bic</td><td class="mono">add r0, r1, r2, lsl #2</td></tr>
+  <tr><td>Move</td><td class="mono">mov mvn</td><td class="mono">mov r0, #0xff</td></tr>
+  <tr><td>Compare (set flags only)</td><td class="mono">cmp cmn tst teq</td><td class="mono">cmp r0, #10</td></tr>
+  <tr><td>Shift</td><td class="mono">lsl lsr asr ror rrx</td><td class="mono">lsl r0, r1, #3</td></tr>
+  <tr><td>Multiply</td><td class="mono">mul mla</td><td class="mono">mla r0, r1, r2, r3</td></tr>
+  <tr><td>Load and store</td><td class="mono">ldr str ldrb strb</td><td class="mono">ldr r0, [r1, #4]</td></tr>
+  <tr><td>Several registers</td><td class="mono">ldm stm push pop</td><td class="mono">push {r4, lr}</td></tr>
+  <tr><td>Branch</td><td class="mono">b bl bx</td><td class="mono">bl sum_array</td></tr>
+  <tr><td>Address of a label</td><td class="mono">adr, ldr Rd, =label</td><td class="mono">ldr r0, =table</td></tr>
+</table>
+<ul>
+  <li>Add <code>s</code> to set the flags: <code>adds</code>, <code>movs</code>. Compares always set them. <code>muls</code> and <code>mlas</code> set N and Z only.</li>
+  <li>Add a <a href="#conditions">condition code</a> to run an instruction only when it holds: <code>addeq</code>, <code>bne</code>, <code>bxle lr</code>. The <code>s</code> comes before the condition: <code>subsgt</code>.</li>
+  <li>The destination may be left out when it is the first source: <code>add r0, #1</code> means <code>add r0, r0, #1</code>.</li>
+  <li><code>ldm</code>/<code>stm</code> take a mode: <code>ia</code> (the default), <code>ib</code>, <code>da</code>, <code>db</code>, or the stack names <code>fd</code>, <code>ed</code>, <code>fa</code>, <code>ea</code>. <code>push {list}</code> is <code>stmdb sp!, {list}</code> and <code>pop {list}</code> is <code>ldmia sp!, {list}</code>. The lowest-numbered register always uses the lowest address.</li>
+</ul>
+
+<h2 id="operand2">Operand 2 and shifts</h2>
+<p>The last operand of the arithmetic, move and compare instructions can be:</p>
+<table>
+  <tr><th>Form</th><th>Example</th><th>Notes</th></tr>
+  <tr><td>Immediate</td><td class="mono">#255, #0xff00</td><td>An 8-bit value rotated right by an even amount. Where possible the assembler uses the inverted or negated form instead (<code>mov r0, #-1</code> becomes <code>mvn r0, #0</code>).</td></tr>
+  <tr><td>Register</td><td class="mono">r2</td><td></td></tr>
+  <tr><td>Shift by a constant</td><td class="mono">r2, lsl #3</td><td><code>lsl</code> #0–31, <code>lsr</code> and <code>asr</code> #0–32, <code>ror</code> #0–31. <code>asl</code> means <code>lsl</code>.</td></tr>
+  <tr><td>Shift by a register</td><td class="mono">r2, lsr r3</td><td>Uses the bottom byte of the shift register.</td></tr>
+  <tr><td>Rotate through carry</td><td class="mono">r2, rrx</td><td>One bit right; C enters bit 31.</td></tr>
+</table>
+
+<h2 id="addressing">Loads and stores</h2>
+<table>
+  <tr><th>Address</th><th>Meaning</th></tr>
+  <tr><td class="mono">[r1]</td><td>The address in r1.</td></tr>
+  <tr><td class="mono">[r1, #8]</td><td>r1 + 8. r1 is unchanged.</td></tr>
+  <tr><td class="mono">[r1, #8]!</td><td>r1 + 8, then r1 is set to that address.</td></tr>
+  <tr><td class="mono">[r1], #8</td><td>r1, then r1 is increased by 8.</td></tr>
+  <tr><td class="mono">[r1, r2]</td><td>r1 + r2.</td></tr>
+  <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array.</td></tr>
+  <tr><td class="mono">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
+</table>
+<p>Word loads and stores need an address that is a multiple of 4.</p>
+
+<h2 id="conditions">Condition codes</h2>
+<table>
+  <tr><th>Code</th><th>Meaning after <code>cmp a, b</code></th><th>Flags</th></tr>
+  <tr><td class="mono">eq / ne</td><td>a = b / a ≠ b</td><td class="mono">Z / !Z</td></tr>
+  <tr><td class="mono">gt / ge / lt / le</td><td>signed a &gt; b, ≥, &lt;, ≤</td><td class="mono">N, Z, V</td></tr>
+  <tr><td class="mono">hi / hs (cs) / lo (cc) / ls</td><td>unsigned a &gt; b, ≥, &lt;, ≤</td><td class="mono">C, Z</td></tr>
+  <tr><td class="mono">mi / pl</td><td>result negative / not negative</td><td class="mono">N</td></tr>
+  <tr><td class="mono">vs / vc</td><td>signed overflow / no overflow</td><td class="mono">V</td></tr>
+  <tr><td class="mono">al</td><td>always (the default)</td><td></td></tr>
+</table>
+
+<h2 id="data">Data and constants</h2>
+<table>
+  <tr><th>Directive</th><th>Stores</th></tr>
+  <tr><td class="mono">.text / .data / .rodata / .bss</td><td>Switch section. <code>.section .rodata</code> also works.</td></tr>
+  <tr><td class="mono">.word 1, -2, label</td><td>32-bit values (also <code>.long</code>, <code>.int</code>, <code>.4byte</code>).</td></tr>
+  <tr><td class="mono">.hword 0x1234</td><td>16-bit values (also <code>.short</code>, <code>.2byte</code>).</td></tr>
+  <tr><td class="mono">.byte 1, 'A'</td><td>8-bit values.</td></tr>
+  <tr><td class="mono">.asciz "hello\n"</td><td>A string with a zero byte at the end (also <code>.string</code>). <code>.ascii</code> adds no zero.</td></tr>
+  <tr><td class="mono">.space 64</td><td>64 zero bytes (also <code>.skip</code>, <code>.zero</code>). <code>.fill 10, 4, -1</code> repeats a value.</td></tr>
+  <tr><td class="mono">.align 2</td><td>Pad to a multiple of 2² = 4 bytes (also <code>.p2align</code>; <code>.balign 4</code> takes bytes).</td></tr>
+  <tr><td class="mono">.equ SIZE, 16</td><td>A constant (also <code>.set</code>, or <code>SIZE = 16</code>).</td></tr>
+  <tr><td class="mono">.global name</td><td>Makes a function visible to C. Needed for the C Call panel.</td></tr>
+</table>
+<p class="note"><code>.type</code>, <code>.size</code>, <code>.syntax unified</code>, <code>.arm</code>, <code>.cpu</code>, <code>.arch</code>, <code>.fpu</code>, <code>.cfi_…</code> and other gcc boilerplate are accepted and ignored.</p>
+
+<h2 id="expressions">Expressions</h2>
+<p>Constants, offsets and data values can be expressions of labels and numbers: <code>mov r0, #(1 &lt;&lt; 4) - 1</code>, <code>.word end - start</code>.</p>
+<ul>
+  <li>Numbers: decimal <code>42</code>, hex <code>0x2a</code>, binary <code>0b101010</code>, octal with a leading zero (<code>052</code>), characters <code>'A'</code> and <code>'\n'</code>.</li>
+  <li>Operators, tightest first: <code>- ~</code> (unary); <code>* / % &lt;&lt; &gt;&gt;</code>; <code>| &amp; ^</code>; <code>+ -</code>. Use brackets when in doubt.</li>
+</ul>
+
+<h2 id="c-calls">Calling functions from C</h2>
+<p>Write the C prototype of a function in a comment that starts with <code>@ C:</code>, then open the <b>C Call</b> tab on the right.</p>
+<pre><span class="c">@ C: extern int sum_array(const int *a, int n);</span>
+        <span class="d">.global</span> sum_array
+<span class="l">sum_array:</span>
+        <span class="k">mov</span>     <span class="r">r2</span>, <span class="n">#0</span>
+<span class="l">1:</span>      <span class="k">ldr</span>     <span class="r">r3</span>, [<span class="r">r0</span>], <span class="n">#4</span>
+        <span class="k">add</span>     <span class="r">r2</span>, <span class="r">r2</span>, <span class="r">r3</span>
+        <span class="k">subs</span>    <span class="r">r1</span>, <span class="r">r1</span>, <span class="n">#1</span>
+        <span class="k">bne</span>     1b
+        <span class="k">mov</span>     <span class="r">r0</span>, <span class="r">r2</span>
+        <span class="k">bx</span>      <span class="r">lr</span></pre>
+<ol>
+  <li>Choose the function and type an argument for each parameter. The panel shows where each one goes.</li>
+  <li><b>Call</b> runs the function until it returns. <b>Step into</b> stops at its first instruction; continue with Step or Run.</li>
+  <li>The result shows the return value, any arrays before and after the call, and calling-convention problems.</li>
+</ol>
+<h3>How arguments are passed</h3>
+<ul>
+  <li>The first four arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>
+  <li><code>char</code> and <code>short</code> arguments are sign- or zero-extended to 32 bits. Plain <code>char</code> is unsigned on ARM.</li>
+  <li>The result is returned in r0. A function returning <code>char</code>, <code>short</code> or <code>_Bool</code> must extend it to 32 bits itself.</li>
+  <li>The function must leave r4–r11 and SP as it found them.</li>
+</ul>
+<h3>Arguments</h3>
+<table>
+  <tr><th>Parameter type</th><th>What to enter</th></tr>
+  <tr><td class="mono">int, unsigned, long, short, char, int8_t … uint32_t, size_t</td><td>A number (<code>-5</code>, <code>0x1f</code>) or a character (<code>'A'</code>). It must fit the type.</td></tr>
+  <tr><td class="mono">_Bool</td><td>true or false.</td></tr>
+  <tr><td class="mono">int *a, const short *p, int a[]</td><td><b>array</b>: elements such as <code>{10, 20, 30}</code>. <b>output buffer</b>: a number of zeroed elements. <b>address</b>: a label, an address or <code>NULL</code>.</td></tr>
+  <tr><td class="mono">char *s, const char *s, void *p</td><td>The same, or <b>string</b>: text such as <code>hello\n</code>. A zero byte is added.</td></tr>
+</table>
+<p>Arrays and strings are placed in memory starting at <code>0x10000000</code>.</p>
+<h3>Checks after the call</h3>
+<ul>
+  <li>r4–r11 or SP not preserved. They start with recognisable values <code>0xC0DE0004</code>–<code>0xC0DE000B</code>.</li>
+  <li>A <code>char</code>, <code>short</code> or <code>_Bool</code> result that is not properly extended.</li>
+  <li>Data changed through a <code>const</code> pointer.</li>
+  <li>The function is not declared <code>.global</code>.</li>
+  <li>The function never returned: it ran off the end of the code, or looped until the step limit.</li>
+</ul>
+
+<h2 id="limits">Not supported</h2>
+<ul>
+  <li>Floating point (VFP/NEON instructions, <code>float</code> and <code>double</code>): the emulated core has no FPU.</li>
+  <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
+  <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
+  <li>Halfword and signed loads (<code>ldrh</code>, <code>strh</code>, <code>ldrsb</code>, <code>ldrsh</code>, <code>ldrd</code>), <code>movw</code>/<code>movt</code>, <code>mls</code>, <code>umull</code>/<code>smull</code>, <code>sdiv</code>/<code>udiv</code>, <code>clz</code> and the extend instructions (<code>uxtb</code> …).</li>
+  <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
+  <li>In C calls: 64-bit types (<code>long long</code>), structs, variadic functions and function pointers.</li>
+</ul>
+<p>References: <a href="https://sourceware.org/binutils/docs/as/ARM_002dDependent.html">GNU as: ARM-dependent features</a>, <a href="https://developer.arm.com/documentation/ddi0406/latest/">Arm Architecture Reference Manual, ARMv7-A and ARMv7-R</a>.</p>
+</main>
+</div>
+</body>
+</html>

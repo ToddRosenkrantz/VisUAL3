@@ -311,8 +311,8 @@ let parseOp2 (subMode : InstrNegativeLiteralMode) (symTable : SymbolTable) (args
         //let isZeroNegated = List.exists (function (0L,_,sub) -> sub = NegatedLit | _ -> false) posLits
 
         match posLits with
-        | [] -> makeDPE "Valid ARM immediate value. Immediates are formed as 32-bit numbers: N ROR (2M), 0 <= N <= 256, 0 <= M <= 15"
-                    (sprintf "invalid literal=%d" num)
+        | [] -> makeDPE "an ARM immediate: an 8-bit value (0-255) rotated right by an even number of bits (or its inverse or negation, where the instruction allows)"
+                    (sprintf "%d (0x%X), which cannot be encoded: use ldr Rd, =value" num num)
         | (K, rot, sub) :: _ -> Result.Ok(NumberLiteral(K, rot, sub))
 
 
@@ -340,7 +340,7 @@ let parseOp2 (subMode : InstrNegativeLiteralMode) (symTable : SymbolTable) (args
                 |> Result.map (makeRegShift shiftType)
             | Ok shiftType, imm when isValidNumericExpression symTable imm ->
                 makeFormatError "Literal constants in instruction operands require '#' prefix" imm ""
-            | _ -> makeDPE "Valid flexible op2 shift type" str
+            | _ -> makeDPE "a shift: lsl, lsr, asr, ror (with #n or a register) or rrx" str
 
     match args with
     | [ imm ] when imm.StartsWith("#") ->

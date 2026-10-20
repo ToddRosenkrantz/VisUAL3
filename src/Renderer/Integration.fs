@@ -32,7 +32,6 @@ let maxStepsBeforeSlowDisplay : int64 = 100000L
 /// Number of execution steps before updating displayed state on long runs.
 let slowDisplayThreshold : int64 = 20000L
 /// URL to display top-level Instruction Help Guide
-let guideHTML = "https://tomcl.github.io/visual2.github.io/guide.html"
 
 let fstOf3 (x, _, _) = x
 let dpAndInfo (dp, _, dpi) = dp, dpi
@@ -48,7 +47,7 @@ let highlightErrorParse ((err : ParseError), lineNo) tId opc =
         else ([], (1, 1))
     let link, hover =
         match err with
-        | ``Invalid Label`` lab -> "", ML (sprintf "'%s' is not a valid instruction and single character labels are not allowed" lab)
+        | ``Invalid Label`` lab -> "", ML (sprintf "'%s' is not a valid label: a label starts with a letter, '_' or '.' and ends with ':'" lab)
         | ``Invalid syntax`` (wanted, found, page) ->
             page, (ML <| "Parse error\nLooking for: " + wanted) @ (ML <| "Found: " + found)
         | ``Invalid format`` (error, found, page) ->
@@ -67,8 +66,7 @@ let highlightErrorParse ((err : ParseError), lineNo) tId opc =
             "", ML <| "This line contains an expression with undefined symbol" + symsMsg
         | ``Invalid opCode`` (root, cond, suffix) ->
             "", sprintf "This opcode: %A%A%A is not valid" root cond suffix |> ML
-        | ``Unimplemented instruction`` opcode when opcode.Length > 1 -> "", sprintf "%s is not a valid UAL instruction" opcode |> ML
-        | ``Unimplemented instruction`` opcode -> "", sprintf "%s is not a valid UAL instruction, and one character labels are not allowed" opcode |> ML
+        | ``Unimplemented instruction`` opcode -> "", sprintf "%s is not an instruction or directive this assembler knows" (opcode.ToLower()) |> ML
         | ``Duplicate symbol`` (sym, lines) ->
             let lineMsg = String.concat ", " (List.map (sprintf "%d") lines)
             "", ML(sprintf "%s: duplicate labels on lines: %s\nDuplicate label names are not allowed" sym lineMsg)
@@ -76,7 +74,7 @@ let highlightErrorParse ((err : ParseError), lineNo) tId opc =
         | ``Literal is not a valid number`` lit -> "", sprintf "%s is not a valid literal" lit |> ML
 
     let gLink = []
-    let mLink = [ sprintf "[more](%s)" (Refs.visualDocsPage link) ]
+    let mLink = [ "*See Help > Assembly language guide*" ]
     let mHover = hover @ [ "More: see \u26a0" ]
     match err with
     | ``Duplicate symbol`` (sym, lines) -> makeErrorInEditor tId lineNo hover hover

@@ -23,7 +23,7 @@ open EEExtensions
 //                                  App Version
 // **********************************************************************************
 
-let appVersion = "1.06.10"
+let appVersion = "2.0.0-dev"
 
 // **********************************************************************************
 //                               Types used in this module
@@ -505,6 +505,25 @@ let runPage url () =
     window?setMenuBarVisibility (true) |> ignore
     window?loadURL (url) |> ignore
     window?show () |> ignore
+
+/// Open a page shipped in the app directory (e.g. guide.html) in its own window,
+/// optionally at an anchor. Second parameter triggers action (for use in menus)
+let runLocalPage (file : string) (anchor : string) () =
+    let window =
+        createNew remote?BrowserWindow (createObj [
+            "width" ==> 900
+            "height" ==> 800
+            "icon" ==> path.join (dirname, "visual.ico")
+            "webPreferences" ==> createObj [ "nodeIntegration" ==> false; "contextIsolation" ==> true ]
+        ])
+    window?setMenuBarVisibility (false) |> ignore
+    // links to web sites open in the system browser, not in this window
+    window?webContents?on ("will-navigate", fun (e : obj) (url : string) ->
+        if url.StartsWith "http" then
+            e?preventDefault () |> ignore
+            openExternal url) |> ignore
+    let opts = if anchor = "" then createObj [] else createObj [ "hash" ==> anchor ]
+    window?loadFile (path.join (dirname, file), opts) |> ignore
 
 let runExtPage url () =
     openExternal url

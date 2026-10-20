@@ -271,21 +271,24 @@ let testMenu() =
 let helpMenu() =
         makeMenu "Help" (
             [
-                makeItem "UAL instruction guide" Core.Option.None (runExtPage <| visualDocsPage "guide#content")
-                makeItem "VisUAL2 web pages" Core.Option.None (runExtPage <| visualDocsPage "")
-                makeItem "Testbenches" Core.Option.None (runExtPage <| visualDocsPage "testbench")
-                makeItem "Official ARM documentation" Core.Option.None (runExtPage "http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0234b/i1010871.html")
+                makeItem "Assembly language guide" (Some "F1") (runLocalPage "guide.html" "")
+                makeItem "Calling functions from C" Core.Option.None (runLocalPage "guide.html" "c-calls")
                 menuSeparator
-                makeItem "Load complex demo code" Core.Option.None (interlockAction "load code" loadDemo)
+                makeItem "GNU as reference: ARM features" Core.Option.None (runExtPage "https://sourceware.org/binutils/docs/as/ARM_002dDependent.html")
+                makeItem "Arm Architecture Reference Manual (ARMv7-A)" Core.Option.None (runExtPage "https://developer.arm.com/documentation/ddi0406/latest/")
+                makeItem "Testbench file format (original VisUAL2 site)" Core.Option.None (runExtPage <| visualDocsPage "testbench")
+                menuSeparator
+                makeItem "Load demo program" Core.Option.None (interlockAction "load code" loadDemo)
                 makeCondItem (debugLevel > 0) "Run dev tools FABLE checks" Core.Option.None (interlockAction "FABLE checks" Integration.runTestbench)
                 makeCondItem (debugLevel > 0) "Run Emulator Tests" Core.Option.None (interlockAction "run tests" Tests.runAllEmulatorTests)
                 menuSeparator
                 makeItem "About" Core.option.None (fun () ->
                     printfn "Directory is:%s" (Stats.dirOfSettings())
-                    showVexAlert (sprintf "<h4>VisUAL2 ARM Simulator v%s</h4> " Refs.appVersion +
-                                "(c) 2018, Imperial College <br> Acknowledgements: Salman Arif (VisUAL), HLP 2018 class" +
-                                " (F# reimplementation), with special mention to Thomas Carrotti," +
-                                " Lorenzo Silvestri, and HLP Team 10"))
+                    showVexAlert (sprintf "<h4>VisUAL2 ARMv7 emulator v%s</h4>" Refs.appVersion +
+                                "GNU as syntax, no FPU, C function calls (AAPCS).<br><br>" +
+                                "Based on VisUAL2 (c) 2018 Imperial College London. Acknowledgements: Salman Arif (VisUAL), " +
+                                "HLP 2018 class (F# reimplementation), with special mention to Thomas Carrotti, " +
+                                "Lorenzo Silvestri, and HLP Team 10"))
             ])
 
 

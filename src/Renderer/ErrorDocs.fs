@@ -1,234 +1,155 @@
-﻿(* 
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.ErrorDocs
-    Description: create markdown for assembler hover message hints
+    Description: create markdown for assembler hover message hints (GNU as syntax)
 *)
 module ErrorDocs
 
 open EEExtensions
 open Refs
 
-type CodeType = DP3 | DP2 | CMP | MUL | LDRSTR | LDMSTM | STACK | MISC | EQU | UNIMPLEMENTED
+/// Hover help for one instruction root or directive
+type OpDoc = {
+    Root : string // upper case mnemonic root, or directive such as ".WORD"
+    Suffixes : string list // allowed between root and condition
+    Legend : string // what it does
+    Syntax : string
+    Examples : string list
+}
 
+let private conds = [ ""; "EQ"; "NE"; "CS"; "HS"; "CC"; "LO"; "MI"; "PL"; "VS"; "VC"; "HI"; "LS"; "GE"; "LT"; "GT"; "LE"; "AL" ]
 
-let opCodeData = [
-    "ADD","dest := op1 + op2", DP3
-    "SUB","dest := op1 - op2", DP3
-    "RSB","dest := op2 - op1", DP3
-    "ADC","dest := op1 + op2 + C", DP3
-    "SBC","dest := op1 - op2 + C", DP3
-    "RSC","dest := op2 - op1 + C - 1", DP3
-    "MOV","dest := op2", DP2
-    "MVN","dest := NOT op2", DP2
-    "CMP","set NZCV on op1 - op2", CMP
-    "CMN","set NZCV on op1 + op2", CMP
-    "TST","set NZ on op1 bitwise AND op2", CMP
-    "TEQ","set NZ on op1 bitwise XOR op2", CMP
-    "MUL","dest := op1 * op2 (low 32 bits). S suffix sets NZ only", MUL
-    "MLA","dest := op1 * op2 + op3 (low 32 bits). S suffix sets NZ only", MUL
-    "LDR","load memory word or byte at address 'EA' into Rd. Optionally update Rb.", LDRSTR
-    "STR","load memory word or byte at address 'EA' into Rd. Optionally update Rb.", LDRSTR
-    "LDM","load multiple registers from memory", LDMSTM
-    "STM","store multiple registers to memory", LDMSTM
-    "PUSH","push registers onto the stack (STMFD SP!, {list})", STACK
-    "POP","pop registers from the stack (LDMFD SP!, {list})", STACK
-    "FILL", "allocate op1 data bytes. Op1 must be divisible by 4. Fill words with 0.", MISC
-    "DCD","allocate data words as specified by op1,...opn",MISC
-    "DCB","allocate data bytes as specified by op1,...,opn. The number of operand must be divisible by 4",MISC
-    "EQU","define label on this line to equal op1. Op1 may contain: labels,numbers, +,-,*,/", EQU
-    ]
+let private doc root suffixes legend syntax examples =
+    { Root = root; Suffixes = suffixes; Legend = legend; Syntax = syntax; Examples = examples }
 
-    /// match opcode with opcode list returning root instruction (without suffixes or conditions)
-    /// return "unimplemented" on no match.
-let getRoot (opc:string) =
-    opCodeData
-    |> List.collect (fun (root,legend,opType) ->
-        if String.startsWith (root.ToUpper()) (opc.ToUpper()) then 
-            [root,legend, opType]
-        else [])
-    |> function
-        | [ spec] -> spec
-        | _ -> "unimplemented", "",UNIMPLEMENTED
+let private dp3 (root : string) legend =
+    let r = root.ToLower()
+    doc root [ ""; "S" ] legend (sprintf "%s{s}{cond} Rd, Rn, op2   (or %s Rd, op2 meaning Rd, Rd, op2)" r r)
+        [ sprintf "%s r0, r1, r2" r; sprintf "%s r5, r5, #101" r; sprintf "%s r0, #1" r; sprintf "%s r7, r10, r3, lsl #2" r ]
 
-/// <summary> Add extra diagnostic info for bad shift instructions <summary>
-let makeShiftModes (isShift, isRRX, isBadShift) =
-    match isShift,isRRX,isBadShift with
-    | None, None, None -> " #-1"
-    | Some sft,_, _ -> sprintf " R2, %s #5" sft
-    | _, Some _, _ -> " R10, RRX"
-    | _, _, Some bad  -> sprintf " R6, LSR #1**\n\n*Note: * **%s** *is not a valid shift, did you mean* **LSR** , **ASR** , **LSL** , **ROR** , **RRX** *?* **" (String.trim bad)
+let private dp2 (root : string) legend =
+    let r = root.ToLower()
+    doc root [ ""; "S" ] legend (sprintf "%s{s}{cond} Rd, op2" r)
+        [ sprintf "%s r0, r1" r; sprintf "%s r5, #0x5a" r; sprintf "%s r7, r2, asr #3" r ]
 
+let private cmp (root : string) legend =
+    let r = root.ToLower()
+    doc root [ ""; "S" ] legend (sprintf "%s{cond} Rn, op2" r)
+        [ sprintf "%s r0, r1" r; sprintf "%s r5, #101" r; sprintf "%s r2, r3, lsl #1" r ]
 
+let private shift (root : string) legend =
+    let r = root.ToLower()
+    doc root [ ""; "S" ] legend (sprintf "%s{s}{cond} Rd, Rm, #n  or  %s Rd, Rm, Rs  (Rd may be omitted)" r r)
+        [ sprintf "%s r0, r1, #2" r; sprintf "%s r0, r1, r2" r; sprintf "%s r3, #1" r ]
 
-let makeDPHover2 (opc,sfts) func = 
-    sprintf """
-*%s dest, op2;  %s*
+let private dataDir root legend syntax examples = doc root [ "" ] legend syntax examples
 
-**%s R0, R1**
+/// All instructions and directives the assembler accepts
+let opDocs = [
+    dp3 "ADD" "Rd := Rn + op2"
+    dp3 "SUB" "Rd := Rn - op2"
+    dp3 "RSB" "Rd := op2 - Rn"
+    dp3 "ADC" "Rd := Rn + op2 + C"
+    dp3 "SBC" "Rd := Rn - op2 - NOT C"
+    dp3 "RSC" "Rd := op2 - Rn - NOT C"
+    dp3 "AND" "Rd := Rn AND op2"
+    dp3 "ORR" "Rd := Rn OR op2"
+    dp3 "EOR" "Rd := Rn XOR op2"
+    dp3 "BIC" "Rd := Rn AND NOT op2"
+    dp2 "MOV" "Rd := op2"
+    dp2 "MVN" "Rd := NOT op2"
+    cmp "CMP" "set NZCV from Rn - op2"
+    cmp "CMN" "set NZCV from Rn + op2"
+    cmp "TST" "set NZ (and C from the shift) from Rn AND op2"
+    cmp "TEQ" "set NZ (and C from the shift) from Rn XOR op2"
+    shift "LSL" "Rd := Rm shifted left (same as mov Rd, Rm, lsl n)"
+    shift "LSR" "Rd := Rm shifted right, zero fill"
+    shift "ASR" "Rd := Rm shifted right, sign fill"
+    shift "ROR" "Rd := Rm rotated right"
+    doc "RRX" [ ""; "S" ] "Rd := Rm rotated right one bit through C" "rrx{s}{cond} Rd, Rm" [ "rrx r0, r1"; "rrxs r2" ]
+    doc "MUL" [ ""; "S" ] "Rd := Rn * Rm (low 32 bits). S sets N and Z only" "mul{s}{cond} Rd, Rn, Rm" [ "mul r0, r1, r2"; "mul r3, r3, r4"; "muls r0, r1" ]
+    doc "MLA" [ ""; "S" ] "Rd := Rn * Rm + Ra (low 32 bits). S sets N and Z only" "mla{s}{cond} Rd, Rn, Rm, Ra" [ "mla r0, r1, r2, r3" ]
+    doc "LDR" [ ""; "B" ] "load a word (or byte with b) from memory into Rd" "ldr{b}{cond} Rd, address   or   ldr Rd, =value"
+        [ "ldr r0, [r1]"; "ldr r0, [r1, #4]"; "ldr r0, [r1], #4       @ post-indexed"; "ldr r0, [r1, #-8]!     @ pre-indexed, write back"
+          "ldr r0, [r1, r2, lsl #2]"; "ldrb r3, [r0, #1]"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
+    doc "STR" [ ""; "B" ] "store a word (or byte with b) from Rd into memory" "str{b}{cond} Rd, address"
+        [ "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "str r0, [sp, #-4]!" ]
+    doc "LDM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "load several registers from consecutive words (lowest register at lowest address)"
+        "ldm{mode}{cond} Rn{!}, {register list}" [ "ldm r0, {r1-r3}"; "ldmia r0!, {r4, r5}"; "ldmfd sp!, {r4, pc}" ]
+    doc "STM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "store several registers to consecutive words (lowest register at lowest address)"
+        "stm{mode}{cond} Rn{!}, {register list}" [ "stm r0, {r1-r3}"; "stmdb sp!, {r4, lr}"; "stmfd sp!, {r0-r3}" ]
+    doc "PUSH" [ "" ] "push registers on the full-descending stack (stmdb sp!, {list})" "push{cond} {register list}" [ "push {r4, lr}"; "push {r0-r3, r12}" ]
+    doc "POP" [ "" ] "pop registers from the stack (ldmia sp!, {list}); popping pc returns" "pop{cond} {register list}" [ "pop {r4, pc}"; "pop {r0-r3}" ]
+    doc "B" [ "" ] "branch to label" "b{cond} label" [ "b loop"; "bne 1b           @ back to the previous local label 1:"; "bge done" ]
+    doc "BL" [ "" ] "branch to label and put the return address in lr (call a function)" "bl{cond} label" [ "bl sum_array"; "bleq handler" ]
+    doc "BX" [ "" ] "branch to the address in a register (return from a function)" "bx{cond} Rm" [ "bx lr"; "bxne lr"; "bx r3" ]
+    doc "ADR" [ "" ] "Rd := address of a nearby label (PC-relative)" "adr{cond} Rd, label" [ "adr r0, table" ]
+    dataDir ".WORD" "store 32-bit values" ".word value, ..." [ "table: .word 1, 2, -3, 0x10"; "ptrs:  .word table, buffer" ]
+    dataDir ".LONG" "store 32-bit values (same as .word)" ".long value, ..." [ ".long 100000" ]
+    dataDir ".INT" "store 32-bit values (same as .word)" ".int value, ..." [ ".int 7" ]
+    dataDir ".4BYTE" "store 32-bit values (same as .word)" ".4byte value, ..." [ ".4byte 7" ]
+    dataDir ".HWORD" "store 16-bit values" ".hword value, ..." [ ".hword 0x1234, -1" ]
+    dataDir ".SHORT" "store 16-bit values (same as .hword)" ".short value, ..." [ ".short 500" ]
+    dataDir ".2BYTE" "store 16-bit values (same as .hword)" ".2byte value, ..." [ ".2byte 500" ]
+    dataDir ".BYTE" "store 8-bit values" ".byte value, ..." [ ".byte 1, 2, 'A', -1" ]
+    dataDir ".ASCII" "store a string with no terminating zero" ".ascii \"text\", ..." [ "msg: .ascii \"Hi\\n\"" ]
+    dataDir ".ASCIZ" "store a zero-terminated (C) string" ".asciz \"text\", ..." [ "msg: .asciz \"hello\"" ]
+    dataDir ".STRING" "store a zero-terminated (C) string (same as .asciz)" ".string \"text\", ..." [ ".string \"hello\"" ]
+    dataDir ".SPACE" "reserve bytes, filled with 0 (or fill)" ".space size{, fill}" [ "buffer: .space 64"; ".space 4, 0xff" ]
+    dataDir ".SKIP" "reserve bytes (same as .space)" ".skip size{, fill}" [ ".skip 16" ]
+    dataDir ".ZERO" "reserve zeroed bytes" ".zero size" [ ".zero 32" ]
+    dataDir ".FILL" "repeat a value of size 1, 2 or 4 bytes" ".fill repeat{, size{, value}}" [ ".fill 10, 4, -1" ]
+    dataDir ".ALIGN" "pad to a multiple of 2^n bytes" ".align n" [ ".align 2      @ word aligned" ]
+    dataDir ".P2ALIGN" "pad to a multiple of 2^n bytes" ".p2align n" [ ".p2align 3" ]
+    dataDir ".BALIGN" "pad to a multiple of n bytes" ".balign n" [ ".balign 4" ]
+    dataDir ".EQU" "define a constant symbol" ".equ symbol, expression" [ ".equ SIZE, 16"; ".equ MASK, (1 << 4) - 1" ]
+    dataDir ".SET" "define a constant symbol (same as .equ)" ".set symbol, expression" [ ".set COUNT, 10" ]
+    dataDir ".TEXT" "following lines are code" ".text" [ ".text" ]
+    dataDir ".DATA" "following lines are initialised data" ".data" [ ".data" ]
+    dataDir ".BSS" "following lines are zeroed data" ".bss" [ ".bss"; "buf: .space 256" ]
+    dataDir ".SECTION" "switch section: .text, .data, .rodata or .bss" ".section name" [ ".section .rodata" ]
+    dataDir ".GLOBAL" "make a label visible to C (needed for C Call)" ".global symbol, ..." [ ".global sum_array" ]
+]
 
-**%s R5, #101**
+/// Find the documentation for an opcode: root + allowed suffix + condition, or a directive
+let findDoc (opc : string) =
+    let u = opc.ToUpper()
+    if u.StartsWith "." then
+        opDocs |> List.tryFind (fun d -> d.Root = u)
+    else
+        opDocs
+        |> List.filter (fun d ->
+            u.StartsWith d.Root &&
+            (let rest = u.Substring d.Root.Length
+             d.Suffixes |> List.exists (fun s -> rest.StartsWith s && List.contains (rest.Substring s.Length) conds)))
+        |> List.sortByDescending (fun d -> d.Root.Length)
+        |> List.tryHead
 
-**%s R10, #0x5a**
+/// Remove a GNU as comment (@ or //) from a line
+let private stripComment (line : string) =
+    let cut (s : string) (marker : string) = match s.IndexOf marker with | -1 -> s | i -> s.Substring(0, i)
+    cut (cut line "@") "//"
 
-**%s R7, %s**
-
-"""    opc func  opc opc opc opc (makeShiftModes sfts)
-
-let makeCMPHover (opc,sfts) func = 
-    sprintf """
-*%s op1, op2;  %s*
-
-**%s R0, R1**
-
-**%s R5, #101**
-
-**%s R10, #0x5a**
-
-**%s R7, %s**
-"""    opc func  opc opc opc opc (makeShiftModes sfts)
-
-let makeLDRSTRHover opc func = 
-    sprintf """
-*%s Rd, EA;  %s*
-
-**%s R0, [R10]**
-
-**%s R5, [R9,#100]**
-
-**%s R1, [R1], #0x5a**
-
-**%s R8, [R13, #-32]!**
-
-**%s R3, [R4, R5]**
-
-**%s R3, [R4, R5, LSL #2]!**
-"""    opc func  opc opc opc opc opc opc
-
-let makeLDMSTMHover opc func = 
-    sprintf """
-*%s Rs[!], {register-list};  %s*
-
-**LDMFD R0!, {R1}**
-
-**STMFD R10!, {R2,R14}**
-
-**LDMIB R10, {R2-R9,R11}**
-"""    opc func
-
-let makeSTACKHover opc func =
-    sprintf """
-*%s {register-list};  %s*
-
-**PUSH {R4, LR}**
-
-**POP {R4, PC}**
-
-**PUSH {R0-R3, R12}**
-
-*The lowest register is always at the lowest address.*
-"""    opc func
-
-let makeMISCHover opc func = 
-    let initLine =
-        match opc with
-        | "DCD" | "DCB" | "dcd" | "dcb" -> "op1, ..., opn; "
-        | "FILL" | "fill" -> "op1 ; "
-        | _ -> failwithf "%s is not a MISC opcode" opc        
-    sprintf """
-*%s %s %s*
-
-**DCD op1, ..., opn**
-
-**DCB op1, ..., opn**
-
-**FILL N**
-"""  opc initLine func 
-
-let makeEQUHover opc func =
-    sprintf """
-*%s op1; %s*
-
-**X1       EQU 44**
-
-**MULTDATA EQU DATA1 + 0x100**
-
-**PTR      EQU (X1 - 12) * 4 + X2**
-"""  opc func 
-
-let makeDPHover3 (opc,sfts) func =
-    sprintf """
-*%s dest, op1, op2;  %s*
-
-**%s R0, R1, R2**
-
-**%s R5, R5, #101**
-
-**%s R10, R0, #0x5a**
-
-**%s R7, R10, %s**
-
-"""     opc func  opc opc opc opc (makeShiftModes sfts)
-
-let makeMULHover opc func =
-    let ops, examples =
-        match String.toUpper opc with
-        | o when o.StartsWith "MLA" -> "dest, op1, op2, op3", [ "R0, R1, R2, R3"; "R4, R4, R5, R6" ]
-        | _ -> "dest, op1, op2", [ "R0, R1, R2"; "R4, R4, R4"; "R3, R5" ]
-    sprintf "\n*%s %s;  %s*\n\n" opc ops func
-    + (examples |> List.map (sprintf "**%s %s**\n\n" opc) |> String.concat "")
-    + "*All operands must be registers (not R15).*\n"
-
-let unimplementedHover opc =
-    sprintf " '%s': There is a problem with this instruction" opc
-
-
-let getOpcHover mess opc line =
-    //printfn "getting hover: opc='%s' line='%s'" opc line
-    let uLine = 
-        String.toUpper (line + " ") 
-        |> String.replaceChar ',' ' '
-        |> String.replaceChar '#' ' '
+/// Hover help for opcode opc on source line: markdown lines, and the column range of the opcode
+let getOpcHover (mess : string) (opc : string) (line : string) =
     if opc = "" then failwithf "can't get hover for '' opcode"
-    let lineContains lst = List.tryFind (fun sft -> String.contains sft uLine) lst
-    let isShift = lineContains [" LSL";" LSR";" ASR";" ROR"]
-    let isRRX = lineContains [" RRX"]
-    let isBadShift = lineContains [" ROL "; " RRL "]
-    let _, legend,typ = getRoot opc
-    let opc' = opc,(isShift,isRRX,isBadShift)
-    let hoverText =
-        match typ with
-        | DP3 -> mess + makeDPHover3 opc' legend
-        | DP2 -> mess + makeDPHover2 opc' legend
-        | CMP -> mess + makeCMPHover opc' legend
-        | MUL -> mess + makeMULHover opc legend
-        | MISC -> mess + makeMISCHover opc legend
-        | LDRSTR -> mess + makeLDRSTRHover opc legend
-        | LDMSTM -> mess + makeLDMSTMHover opc legend
-        | STACK -> mess + makeSTACKHover opc legend
-        | EQU -> mess + makeEQUHover opc legend 
-        | UNIMPLEMENTED -> unimplementedHover opc
-        |> (fun s -> [s])
-    let stripComment line = 
-        match String.split [|';'|] line |> Array.toList with
-        |  ins :: _ -> ins
-        | _ -> failwithf "What? split should return at least one item!"
-    let oLen = opc.Length
-    let splitLine =
-        " " + (stripComment line) + " "
-        |> String.splitString [|opc|]
-        |> Array.toList 
-        |>  List.rev
-    let oStart = 
-        match splitLine  with
-            | _afterPart :: before -> List.sumBy String.length before + 1
-            | x -> failwithf "What? Unexpected split '%A' can't happen. line = '%s', opc = '%s'." x line opc
-    let lineText = sprintf "```\n%s\n```\n" (stripComment line)
-    if oStart + oLen - 1 >= line.Length then 
-        ([lineText] @ hoverText), (1, lineText.Length)
-    else  ([lineText] @ hoverText), (oStart, oStart + oLen - 1)
-
-
-
-
-    
+    let code = stripComment line
+    let uLine = (code + " ").ToUpper().Replace(",", " ").Replace("#", " ")
+    let badShift = [ " ROL "; " RRL " ] |> List.tryFind (fun s -> uLine.Contains s)
+    let help =
+        match findDoc opc with
+        | Some d ->
+            [ yield sprintf "**%s**: %s" (d.Syntax.Split(' ').[0]) d.Legend
+              yield sprintf "`%s`" d.Syntax
+              yield "```arm\n" + String.concat "\n" d.Examples + "\n```"
+              match badShift with
+              | Some bad -> yield sprintf "*%s is not an ARM shift: use lsl, lsr, asr, ror or rrx*" (bad.Trim().ToLower())
+              | None -> () ]
+        | None -> [ sprintf "'%s' is not an instruction or directive this assembler knows" opc ]
+    let lineText = sprintf "```arm\n%s\n```\n" (code.TrimEnd())
+    let range =
+        match code.ToUpper().IndexOf(opc.ToUpper()) with
+        | -1 -> (1, max 1 code.Length)
+        | i -> (i + 1, i + opc.Length)
+    ([ lineText ] @ (if mess = "" then help else mess :: help)), range
