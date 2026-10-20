@@ -599,12 +599,7 @@ let setRegister (id : CommonData.RName) (value : uint32) =
 let updateRegisters() =
     Map.iter setRegister regMap
 
+/// Show the emulator's initial register values (SP and LR are not zero)
 let resetRegs() =
-    [ 0..15 ]
-    |> List.map (fun x ->
-        setRegister (CommonData.register x) (
-            match x with
-            | 13 -> 0xFF000000u
-            | _ -> 0u))
-    |> ignore
+    Map.iter setRegister ExecutionTop.initialRegMap
 

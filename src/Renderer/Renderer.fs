@@ -136,6 +136,8 @@ let init() =
     Editors.updateAllEditors false
 
     Tooltips.addFixedToolTips()
+    // replace the placeholder values in index.html with the initial register state
+    updateRegisters()
     Integration.runEndHook <- CCallView.onRunEnd
 
 
