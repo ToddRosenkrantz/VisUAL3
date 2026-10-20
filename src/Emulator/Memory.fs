@@ -33,6 +33,8 @@ module Memory
         | SASR /// ASR scaling
         | SLSR /// LSR scaling
         | SLSL /// LSL scaling
+        | SROR /// ROR scaling
+        | SRRX /// RRX: rotate right one bit through C
 
     /// Single Store/Load memory instruction. LDR, LDRB, STR, STRB
     /// op{type}{cond} Rt, [Rn {, #offset}]        ; immediate offset
@@ -196,59 +198,73 @@ module Memory
                     | _ -> None
                 | _ -> None
 
-            /// matches the offset part of an addressing mode
+            /// matches the offset part of an addressing mode (ARMv7)
             /// removes initial whitespace
             /// "" -> no offset.
-            /// ", Rx" -> register offset.
-            /// ", #n" -> immediate offset.
-            /// ", Rx, XXX #S" -> scaled register offset where XXX = ASR, LSR,LSL.
+            /// ", #n" -> immediate offset: -4095..4095 (-255..255 for H, SB, SH).
+            /// ", Rm" or ", -Rm" or ", +Rm" -> register offset, added or subtracted.
+            /// ", Rm, LSL #n" (or LSR, ASR, ROR #n, or RRX) -> scaled register offset (not for H, SB, SH).
             /// Returns (offset gen function, restOfTxt)
             let (|OFFSET|_|) (txt : string) =
+                let (|COMMA|_|) = (|REMOVEPREFIX|_|) ","
+                let (|R|_|) = (|REGMATCH|_|)
+                /// optional sign before a register offset: true = subtract
+                let (|SIGNED|_|) (txt : string) =
+                    match trim txt with
+                    | REMOVEPREFIX "-" s -> Some(true, s)
+                    | REMOVEPREFIX "+" s -> Some(false, s)
+                    | s -> Some(false, s)
                 let (|SHIFT|_|) (txt : string) =
                     match txt with
                     | REMOVEPREFIXUNCASED "ASR" s -> (SASR, s) |> Some
                     | REMOVEPREFIXUNCASED "LSR" s -> (SLSR, s) |> Some
                     | REMOVEPREFIXUNCASED "LSL" s -> (SLSL, s) |> Some
+                    | REMOVEPREFIXUNCASED "ROR" s -> (SROR, s) |> Some
                     | _ -> None
-                let (|COMMA|_|) = (|REMOVEPREFIX|_|) ","
-                let (|R|_|) = (|REGMATCH|_|)
                 let (|MIMM|_|) immTxt =
-                    let memImmBounds =
-                        match mSize with
-                        | _ when mode3 -> 255, -255
-                        | MWord -> 4092, -4092
-                        | MByte | MHalf -> 1023, -1023
-                    match memImmBounds, immTxt with
-                    | _, IMMEXPR(n, txt) when mSize = MWord && (n % 4u <> 0u) ->
-                        (makeParseError "immediate word offset divisible by 4" ("offset=" + (int32 n).ToString()) "ea", txt) |> Some
-                    | (bMax, bMin), IMMEXPR(n, txt) when int n <= bMax && int n >= bMin -> (Ok n, txt) |> Some
-                    | (bMax, bMin), IMMEXPR(n, txt) ->
-                        (makeParseError (sprintf "immediate offset in range %d..%d" bMax bMin) ("offset=" + (int32 n).ToString()) "ea", txt) |> Some
-                    | _, ImmExprUnresolved e -> Some(Error e, txt)
-                    | _, LITERALNUMB(_, txt) -> (makeFormatError "Numeric offset in LDR/STR must have # prefix (#1000)" immTxt "ea", txt) |> Some
+                    let bMax = if mode3 then 255 else 4095
+                    match immTxt with
+                    | IMMEXPR(n, txt) when int n <= bMax && int n >= -bMax -> (Ok n, txt) |> Some
+                    | IMMEXPR(n, txt) ->
+                        (makeParseError (sprintf "immediate offset in range -%d..%d" bMax bMax) ("offset=" + (int32 n).ToString()) "ea", txt) |> Some
+                    | ImmExprUnresolved e -> Some(Error e, txt)
+                    | LITERALNUMB(_, txt) -> (makeFormatError "Numeric offset in LDR/STR must have # prefix (#1000)" immTxt "ea", txt) |> Some
                     | _ -> None
-                let (|SHIFTIMM|_|) = function
-                    | IMM(n, txt) when int n > 0 && int n < 32 -> (Ok n, txt) |> Some
-                    | IMM(n, txt) -> (makeParseError "Scaled register shift must be within range 1..31" ("shift=" + (int32 n).ToString()) "ea", txt) |> Some
-                    | _ -> None
-                let makeScaled (rx : RName) (shift : ScaledShiftCode) sftAmt =
-                    fun (dp : DataPath) ->
-                        let x = dp.Regs.[rx]
-                        match shift with
-                        | SASR -> (int x) >>> int sftAmt
-                        | SLSL -> x <<< int sftAmt |> int
-                        | SLSR -> x >>> int sftAmt |> int
+                /// shift amounts allowed in an addressing mode: ARMv7's ranges, plus #0 (no shift),
+                /// which is also accepted for data-processing shifts
+                let shiftRange = function | SLSL -> 0u, 31u | SLSR | SASR -> 0u, 32u | SROR -> 0u, 31u | SRRX -> 0u, 0u
+                /// value of register rx after the shift (shifts by 32 handled explicitly: .NET and JS mask the count)
+                let scaled (rx : RName) (shift : ScaledShiftCode) (n : uint32) (dp : DataPath) : uint32 =
+                    let x = dp.Regs.[rx]
+                    match shift with
+                    | SLSL -> x <<< int n
+                    | SLSR -> if n = 32u then 0u else x >>> int n
+                    | SASR -> uint32 ((int32 x) >>> (if n = 32u then 31 else int n))
+                    | SROR -> (x >>> int n) ||| (x <<< (32 - int n))
+                    | SRRX -> (x >>> 1) ||| (if dp.Fl.C then 0x80000000u else 0u)
+                /// register offset rx (subtracted if neg), with an optional shift in rest
+                let regOffset (neg : bool) (rx : RName) (rest : string) =
+                    let make shift n =
+                        Ok(fun (dp : DataPath) -> let v = int32 (scaled rx shift n dp) in if neg then -v else v)
+                    let noShift () =
+                        makeParseError (sprintf "an offset of #imm or a register: %s%s does not allow a shifted register" uRoot uSuffix) rest ""
+                    match trim rest with
+                    | COMMA(REMOVEPREFIXUNCASED "RRX" s) when mode3 -> Some(noShift (), s)
+                    | COMMA(REMOVEPREFIXUNCASED "RRX" s) -> Some(make SRRX 0u, s)
+                    | COMMA(SHIFT(_, s)) when mode3 -> Some(noShift (), s)
+                    | COMMA(SHIFT(shift, IMM(n, s))) ->
+                        let lo, hi = shiftRange shift
+                        if n >= lo && n <= hi then Some(make shift n, s)
+                        else Some(makeParseError (sprintf "%s shift amount in range #%d..#%d" ((sprintf "%A" shift).Substring 1) lo hi) (sprintf "#%d" (int n)) "ea", s)
+                    | s when not (s.StartsWith ",") -> Some(make SLSL 0u, s)
+                    | s -> Some(makeParseError "a shift: LSL, LSR, ASR or ROR with #n, or RRX" s "ea", s)
                 match trim txt with
                 | "" -> Some(Ok(fun _ -> 0), "")
-                | COMMA(R(rx, TRIM s)) when not (s.StartsWith ",") -> (Ok(fun (dp : DataPath) -> int dp.Regs.[rx]), s) |> Some
                 | COMMA(MIMM(offset, s)) ->
                     let makeOffsetFunc (offst : uint32) (dp : DataPath) = int offst
                     (Result.map makeOffsetFunc offset, s) |> Some
-                | COMMA(R(rx, (TRIM s))) when not (s.StartsWith ",") -> Some(Ok(fun (dp : DataPath) -> int dp.Regs.[rx]), s)
-                | COMMA(R(_, (COMMA(SHIFT(_, (SHIFTIMM(_, txt))))))) when mode3 ->
-                    Some(makeParseError (sprintf "an offset of #imm or a register: %s%s does not allow a shifted register" uRoot uSuffix) txt "", txt)
-                | COMMA(R(rx, (COMMA(SHIFT(shift, (SHIFTIMM(sftAmt, txt))))))) -> Some(Result.map (makeScaled rx shift) sftAmt, txt)
-                | _ -> Some (makeParseError "valid memory offset: ''; 'Ry'; '#N'; 'LSR #N'; 'LSR Rs'"
+                | COMMA(SIGNED(neg, R(rx, rest))) -> regOffset neg rx rest
+                | _ -> Some (makeParseError "valid memory offset: #n, Rm, -Rm, or Rm with a shift (Rm, LSL #n)"
                                         ("invalid:'" + txt + "'") "list#single-memory-tranfer-instructions", txt)
                 // include base register value as second parameter of returned function
                 |> mapOptHeadResult (fun fo dp rbv -> fo dp + rbv)

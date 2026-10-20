@@ -142,10 +142,11 @@
   <tr><td class="mono">[r1, #8]!</td><td>r1 + 8, then r1 is set to that address.</td></tr>
   <tr><td class="mono">[r1], #8</td><td>r1, then r1 is increased by 8.</td></tr>
   <tr><td class="mono">[r1, r2]</td><td>r1 + r2.</td></tr>
-  <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array.</td></tr>
+  <tr><td class="mono">[r1, -r2]</td><td>r1 − r2. A register offset can be subtracted; <code>+r2</code> is also accepted.</td></tr>
+  <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array. The shift can be <code>lsl #0–31</code>, <code>lsr #1–32</code>, <code>asr #1–32</code>, <code>ror #1–31</code> or <code>rrx</code>.</td></tr>
   <tr><td class="mono">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
 </table>
-<p>Word loads and stores need an address that is a multiple of 4, halfword ones a multiple of 2.</p>
+<p>An immediate offset can be any value from −4095 to 4095. Word loads and stores need a final address that is a multiple of 4, halfword ones a multiple of 2.</p>
 <h3>Bytes and halfwords</h3>
 <table>
   <tr><th>Instruction</th><th>Does</th></tr>
@@ -153,7 +154,7 @@
   <tr><td class="mono">ldrsb / ldrsh</td><td>Load a byte / halfword and copy its top bit into the upper bits (signed): <code>0xFF</code> loads as −1.</td></tr>
   <tr><td class="mono">strb / strh</td><td>Store the low byte / halfword of the register. There is no signed store.</td></tr>
 </table>
-<p><code>ldrh</code>, <code>strh</code>, <code>ldrsb</code> and <code>ldrsh</code> take a smaller set of addresses than <code>ldr</code> and <code>ldrb</code>: an immediate offset from −255 to 255, or a register offset with no shift (<code>[r1, r2]</code>, not <code>[r1, r2, lsl #1]</code>). Pre- and post-indexing work as usual.</p>
+<p><code>ldrh</code>, <code>strh</code>, <code>ldrsb</code> and <code>ldrsh</code> take a smaller set of addresses than <code>ldr</code> and <code>ldrb</code>: an immediate offset from −255 to 255, or a register offset with no shift (<code>[r1, r2]</code> or <code>[r1, -r2]</code>, not <code>[r1, r2, lsl #1]</code>). Pre- and post-indexing work as usual.</p>
 
 <h2 id="conditions">Condition codes</h2>
 <table>

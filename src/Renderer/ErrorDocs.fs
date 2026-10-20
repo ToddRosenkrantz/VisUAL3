@@ -74,7 +74,7 @@ let opDocs = [
         "load a word into Rd; b/h = byte/halfword (zero-extended), sb/sh = signed byte/halfword (sign-extended)"
         "ldr{b|h|sb|sh}{cond} Rd, address   or   ldr Rd, =value"
         [ "ldr r0, [r1]"; "ldr r0, [r1, #4]"; "ldr r0, [r1], #4       @ post-indexed"; "ldr r0, [r1, #-8]!     @ pre-indexed, write back"
-          "ldr r0, [r1, r2, lsl #2]"; "ldrb r3, [r0, #1]"; "ldrsh r2, [r0, #2]     @ h/sb/sh: offset -255..255"
+          "ldr r0, [r1, r2, lsl #2]"; "ldr r0, [r1, -r2]      @ register offset subtracted"; "ldrb r3, [r0, #1]"; "ldrsh r2, [r0, #2]     @ h/sb/sh: offset -255..255"
           "ldrh r2, [r0, r1]      @ h/sb/sh: register offset, no shift"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
     doc "STR" [ ""; "B"; "H" ] "store a word from Rd into memory; b/h = its low byte/halfword" "str{b|h}{cond} Rd, address"
         [ "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "strh r2, [r3, #2]      @ h: offset -255..255"; "str r0, [sp, #-4]!" ]

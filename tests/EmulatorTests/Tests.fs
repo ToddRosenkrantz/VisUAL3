@@ -796,7 +796,86 @@ let halfwordTests = [
     "misaligned STRH stops the run", "ldr r0, =d\nstrh r1, [r0, #3]\n.data\nd: .word 0", [ Expect.RunError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests
+let addressingTests = [
+    "word offset need not be a multiple of 4",
+    """    ldr r0, =d + 2
+           ldr r1, [r0, #2]
+           .data
+       d:  .word 11, 22""",
+    [ Reg (R1, 22u) ]
+
+    "LDRB / STRB offsets up to 4095",
+    """    ldr r0, =d - 4000
+           ldrb r1, [r0, #4000]
+           mov r2, #0x5A
+           strb r2, [r0, #4001]
+           ldr r3, =d
+           ldr r4, [r3]
+           .data
+       d:  .word 0x11223344""",
+    [ Reg (R1, 0x44u); Reg (R4, 0x11225A44u) ]
+
+    "word offset 4095 accepted", "ldr r0, [r1, #4092]\nldrb r2, [r1, #-4095]", [ Reg (R0, 0u) ]
+    "word offset 4096 rejected", "ldr r0, [r1, #4096]", [ ParseError ]
+    "byte offset -4096 rejected", "ldrb r0, [r1, #-4096]", [ ParseError ]
+
+    "negative and explicitly positive register offsets",
+    """    ldr r0, =d + 8
+           mov r2, #8
+           ldr r1, [r0, -r2]
+           ldr r3, [r0, +r2]
+           ldr r4, [r0], -r2
+           .data
+       d:  .word 1, 2, 3, 4, 5""",
+    [ Reg (R1, 1u); Reg (R3, 5u); Reg (R4, 3u) ]
+
+    "negative scaled register offset",
+    """    ldr r0, =d + 12
+           mov r2, #2
+           ldr r1, [r0, -r2, lsl #2]
+           .data
+       d:  .word 1, 2, 3, 4""",
+    [ Reg (R1, 2u) ]
+
+    "ROR and RRX register offsets",
+    """    ldr r0, =d
+           mov r2, #8
+           ldr r1, [r0, r2, ror #1]
+           mov r3, #0
+           cmp r3, #1
+           ldr r4, [r0, r2, rrx]
+           .data
+       d:  .word 1, 2, 3""",
+    [ Reg (R1, 2u); Reg (R4, 2u) ]
+
+    "LSR #32 and ASR #32 register offsets",
+    """    ldr r0, =d
+           mov r2, #8
+           ldr r1, [r0, r2, lsr #32]
+           ldr r3, =d + 1
+           mvn r2, #0
+           ldrb r4, [r3, r2, asr #32]
+           .data
+       d:  .word 0x11223344""",
+    [ Reg (R1, 0x11223344u); Reg (R4, 0x44u) ]
+
+    "LSL #0 register offset", "ldr r0, =d\nmov r2, #4\nldr r1, [r0, r2, lsl #0]\n.data\nd: .word 7, 9", [ Reg (R1, 9u) ]
+    "LSL #32 offset rejected", "ldr r0, [r1, r2, lsl #32]", [ ParseError ]
+    "ROR #32 offset rejected", "ldr r0, [r1, r2, ror #32]", [ ParseError ]
+    "LSR #33 offset rejected", "ldr r0, [r1, r2, lsr #33]", [ ParseError ]
+    "unknown shift rejected", "ldr r0, [r1, r2, rol #2]", [ ParseError ]
+
+    "halfword negative register offset",
+    """    ldr r0, =d + 4
+           mov r2, #4
+           ldrsh r1, [r0, -r2]
+           .data
+       d:  .hword -7, 0""",
+    [ Reg (R1, 0xFFFFFFF9u) ]
+    "halfword RRX offset rejected", "ldrh r0, [r1, r2, rrx]", [ ParseError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 
