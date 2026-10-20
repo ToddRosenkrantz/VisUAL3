@@ -19,6 +19,7 @@ module ParseTop
         | IDP of DP.Instr
         | IMISC of Misc.Instr
         | IBRANCH of Branch.Instr
+        | IVFP of Vfp.Instr
         | EMPTY
 
 
@@ -65,6 +66,7 @@ module ParseTop
         | DP.IMatch pa -> copy IDP pa
         | Misc.IMatch pa -> copy IMISC pa
         | Branch.IMatch pa -> copy IBRANCH pa
+        | Vfp.IMatch pa -> copy IVFP pa
         | _ -> None
 
 
@@ -98,9 +100,9 @@ module ParseTop
           "VLDM"; "VSTM"; "VPUSH"; "VPOP" ]
         |> List.exists o.StartsWith
 
-    /// The emulated CPU has no FPU (soft-float): floating point must use library calls
+    /// V-instructions that are not scalar VFP: NEON (vld1, vmax, vadd.i32 ...)
     let noHardFloatError opc =
-        sprintf "'%s' is a hardware floating point (VFP) instruction. This emulator models an ARMv7 core without an FPU: use integer code or soft-float library calls" opc
+        sprintf "'%s' is not a VFP instruction this emulator supports: NEON vector instructions are not emulated" opc
         |> ``Invalid instruction`` |> Error
 
     /// Parse one statement from the GNU front end (GnuLex)

@@ -15,6 +15,7 @@
     <Compile Include="GnuLex.fs" />
     <Compile Include="Memory.fs" />
     <Compile Include="DP.fs" />
+    <Compile Include="Vfp.fs" />
     <Compile Include="Branch.fs" />
     <Compile Include="Misc.fs" />
     <Compile Include="ParseTop.fs" />

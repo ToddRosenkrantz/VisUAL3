@@ -15,6 +15,12 @@ type Expect =
     | RunError
     /// memory word never written
     | NoMem of uint32
+    /// VFP word n (s<n> for n < 32)
+    | VW of int * uint32
+    /// d register: high word, low word
+    | DW of int * uint32 * uint32
+    /// the FPSCR
+    | Fpscr of uint32
 
 /// Assemble and run `code` (one instruction per line) to completion.
 let run (code : string) =
@@ -40,6 +46,14 @@ let check (dp : DataPath) expect =
         let f = dp.Fl
         if (f.N, f.Z, f.C, f.V) = (n, z, c, v) then None
         else Some (sprintf "NZCV = %A, expected %A" (f.N, f.Z, f.C, f.V) (n, z, c, v))
+    | VW (n, v) ->
+        let a = Map.tryFind n dp.Fp.W |> Option.defaultValue 0u
+        if a = v then None else Some (sprintf "VFP word %d = 0x%08X, expected 0x%08X" n a v)
+    | DW (n, hi, lo) ->
+        let w i = Map.tryFind i dp.Fp.W |> Option.defaultValue 0u
+        if (w (2 * n + 1), w (2 * n)) = (hi, lo) then None
+        else Some (sprintf "d%d = 0x%08X_%08X, expected 0x%08X_%08X" n (w (2 * n + 1)) (w (2 * n)) hi lo)
+    | Fpscr v -> if dp.Fp.FPSCR = v then None else Some (sprintf "FPSCR = 0x%08X, expected 0x%08X" dp.Fp.FPSCR v)
     | ParseError -> Some "expected a parse error"
     | RunError -> Some "expected a run time error"
     | NoMem a ->
@@ -342,8 +356,8 @@ let shiftTests = [
 ]
 
 let noFloatTests = [
-    "VFP instruction rejected", "VADD.F32 S0, S1, S2", [ ParseError ]
-    "VFP instruction after label rejected", "LOOP: vldr d0, [r1]", [ ParseError ]
+    "VFP instruction in upper case", "VMOV.F32 S1, #2.0\nVADD.F32 S0, S1, S1", [ VW (0, 0x40800000u) ]
+    "VFP instruction after a label", "LOOP: vmov.f64 d0, #1.0", [ DW (0, 0x3FF00000u, 0u) ]
     "V-named label still allowed",
     """      B VALUE
        VALUE: MOV R0, #1""",
@@ -1067,7 +1081,213 @@ let bitTests = [
     "REVS rejected", "revs r0, r1", [ ParseError ]
 ]
 
-let allTests = bitTests @ doubleTests @ a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
+/// VFP (VFPv4, D32), MRS and MSR
+let vfpTests = [
+    "vmov immediate and vadd.f32", "vmov.f32 s0, #1.5\nvmov.f32 s1, #2.25\nvadd.f32 s2, s0, s1", [ VW (2, 0x40700000u); Fpscr 0u ]
+    "single precision rounds: 0.1f + 0.2f",
+    """    ldr r0, =d
+           vldr s0, [r0]
+           vldr.32 s1, [r0, #4]
+           vadd.f32 s2, s0, s1
+           vstr s2, [r0, #8]
+           ldr r1, [r0, #8]
+           .data
+       d:  .float 0.1, 0.2
+           .word 0""",
+    [ VW (2, 0x3E99999Au); Reg (R1, 0x3E99999Au); Fpscr 0x10u ]
+    "double precision, and d registers overlap s registers",
+    """    ldr r0, =d
+           vldr d0, [r0]
+           vldr.f64 d1, [r0, #8]
+           vadd.f64 d2, d0, d1
+           .data
+       d:  .double 0.1, 0.2""",
+    [ DW (2, 0x3FD33333u, 0x33333334u); VW (4, 0x33333334u); VW (5, 0x3FD33333u) ]
+    "d16-d31 are separate from s registers", "vmov.f64 d16, #1.0\nvmov.f64 d31, #-2.0", [ DW (16, 0x3FF00000u, 0u); DW (31, 0xC0000000u, 0u); VW (0, 0u) ]
+    "vmov between core and VFP registers",
+    """    ldr r0, =0x12345678
+           ldr r2, =0xAAAA0000
+           ldr r3, =0xBBBB0000
+           vmov s3, r0
+           vmov r1, s3
+           vmov d5, r2, r3
+           vmov r4, r5, d5
+           vmov s6, s7, r2, r3
+           vmov.32 d6[1], r0
+           vmov r6, d6[1]
+           vmov r7, r8, s6, s7""",
+    [ VW (3, 0x12345678u); Reg (R1, 0x12345678u); DW (5, 0xBBBB0000u, 0xAAAA0000u); Reg (R4, 0xAAAA0000u); Reg (R5, 0xBBBB0000u)
+      VW (6, 0xAAAA0000u); VW (13, 0x12345678u); Reg (R6, 0x12345678u); Reg (R7, 0xAAAA0000u); Reg (R8, 0xBBBB0000u) ]
+    "double arithmetic",
+    """    vmov.f64 d0, #2.5
+           vmov.f64 d1, #4.0
+           vmov.f64 d6, #1.0
+           vmov.f64 d7, #3.0
+           vsub.f64 d2, d0, d6
+           vmul.f64 d3, d0, d1
+           vdiv.f64 d4, d6, d7
+           vmov.f64 d8, #2.0
+           vsqrt.f64 d5, d8
+           vneg.f64 d9, d0
+           vabs.f64 d10, d9
+           vnmul.f64 d11, d0, d1
+           vadd.f64 d0, d6""",
+    [ DW (2, 0x3FF80000u, 0u); DW (3, 0x40240000u, 0u); DW (4, 0x3FD55555u, 0x55555555u); DW (5, 0x3FF6A09Eu, 0x667F3BCDu)
+      DW (9, 0xC0040000u, 0u); DW (10, 0x40040000u, 0u); DW (11, 0xC0240000u, 0u); DW (0, 0x400C0000u, 0u) ]
+    "fused multiply-add rounds once, vmla twice",
+    """    ldr r0, =d
+           vldr d0, [r0]
+           vmov.f64 d1, #10.0
+           vmov.f64 d2, #-1.0
+           vmov.f64 d3, d2
+           vmla.f64 d3, d0, d1
+           vmov.f64 d4, d2
+           vfma.f64 d4, d0, d1
+           .data
+       d:  .double 0.1""",
+    [ DW (3, 0u, 0u); DW (4, 0x3C900000u, 0u) ]
+    "multiply-accumulate family",
+    """    vmov.f32 s0, #2.0
+           vmov.f32 s1, #3.0
+           vmov.f32 s10, #10.0
+           vmov.f32 s2, s10
+           vmls.f32 s2, s0, s1
+           vmov.f32 s3, s10
+           vnmla.f32 s3, s0, s1
+           vmov.f32 s4, s10
+           vnmls.f32 s4, s0, s1
+           vmov.f32 s5, s10
+           vfms.f32 s5, s0, s1
+           vmov.f32 s6, s10
+           vfnma.f32 s6, s0, s1
+           vmov.f32 s7, s10
+           vfnms.f32 s7, s0, s1""",
+    [ VW (2, 0x40800000u); VW (3, 0xC1800000u); VW (4, 0xC0800000u); VW (5, 0x40800000u); VW (6, 0xC1800000u); VW (7, 0xC0800000u) ]
+    "vcmp, vmrs APSR_nzcv and a conditional branch",
+    """    vmov.f32 s0, #1.0
+           vmov.f32 s1, #2.0
+           vcmp.f32 s0, s1
+           vmrs APSR_nzcv, fpscr
+           movlt r0, #1
+           movgt r1, #1
+           blt done
+           mov r2, #1
+       done:""",
+    [ Reg (R0, 1u); Reg (R1, 0u); Reg (R2, 0u); Flags (true, false, false, false); Fpscr 0x80000000u ]
+    "unordered compare after 0/0, vcmp with #0, fmstat",
+    """    vsub.f32 s0, s0, s0
+           vdiv.f32 s2, s0, s0
+           vcmp.f32 s2, s0
+           vmrs APSR_nzcv, fpscr
+           movvs r2, #1
+           vmov.f32 s3, #1.0
+           vcmpe.f32 s3, #0
+           fmstat
+           movgt r3, #1""",
+    [ VW (2, 0x7FC00000u); Reg (R2, 1u); Reg (R3, 1u); Fpscr 0x20000001u ]
+    "conversions",
+    """    vmov.f32 s0, #-2.5
+           vcvt.s32.f32 s1, s0
+           vcvtr.s32.f32 s2, s0
+           vcvt.f64.f32 d2, s0
+           vcvt.f32.f64 s6, d2
+           mvn r0, #6
+           vmov s7, r0
+           vcvt.f32.s32 s8, s7
+           ldr r1, =3000000000
+           vmov s9, r1
+           vcvt.f64.u32 d5, s9
+           vcvt.u32.f64 s12, d5
+           vmov.f32 s13, #1.5
+           vcvt.s32.f32 s13, s13, #16
+           vcvt.f32.u16 s14, s14, #4""",
+    [ VW (1, 0xFFFFFFFEu); VW (2, 0xFFFFFFFEu); DW (2, 0xC0040000u, 0u); VW (6, 0xC0200000u); VW (8, 0xC0E00000u)
+      DW (5, 0x41E65A0Bu, 0xC0000000u); VW (12, 3000000000u); VW (13, 0x00018000u); VW (14, 0u) ]
+    "half precision with vcvtb and vcvtt",
+    """    vmov.f32 s0, #1.5
+           vmov.f32 s2, #-2.0
+           vcvtb.f16.f32 s1, s0
+           vcvtt.f16.f32 s1, s2
+           vcvtt.f32.f16 s3, s1
+           vcvtb.f32.f16 s4, s1""",
+    [ VW (1, 0xC0003E00u); VW (3, 0xC0000000u); VW (4, 0x3FC00000u) ]
+    "vpush, vpop, vstm and vldm",
+    """    vmov.f64 d8, #1.0
+           vmov.f64 d9, #2.0
+           vpush {d8-d9}
+           mov r5, sp
+           vmov.f64 d8, #0.5
+           vmov.f64 d9, #0.5
+           vpop {d8, d9}
+           ldr r0, =buf
+           vmov.f32 s0, #1.0
+           vmov.f32 s1, #2.0
+           vmov.f32 s2, #3.0
+           vstmia r0!, {s0-s2}
+           vldmdb r0!, {s4-s6}
+           mov r1, r0
+           ldr r2, =buf
+           .data
+       buf: .space 16""",
+    [ DW (8, 0x3FF00000u, 0u); DW (9, 0x40000000u, 0u); Reg (R5, 0xFEFFFFF0u); Reg (R13, 0xFF000000u)
+      VW (4, 0x3F800000u); VW (5, 0x40000000u); VW (6, 0x40400000u) ]
+    "vmsr sets the rounding mode; flags accumulate",
+    """    mov r0, #0x00C00000
+           vmsr fpscr, r0
+           vmov.f32 s0, #1.0
+           vmov.f32 s1, #3.0
+           vdiv.f32 s2, s0, s1
+           vsub.f32 s3, s3, s3
+           vdiv.f32 s4, s0, s3
+           vmrs r1, fpscr""",
+    [ VW (2, 0x3EAAAAAAu); VW (4, 0x7F800000u); Reg (R1, 0x00C00012u) ]
+    "mrs and msr",
+    """    mov r0, #0
+           cmp r0, #0
+           mrs r1, apsr
+           msr APSR_nzcvq, #0x80000000
+           mrs r2, cpsr
+           mov r3, #0x30000000
+           msr cpsr_f, r3""",
+    [ Reg (R1, 0x60000000u); Reg (R2, 0x80000000u); Flags (false, false, true, true) ]
+    ".single and .double directives",
+    "ldr r0, =d\nldr r1, [r0]\nldr r2, [r0, #4]\nldr r3, [r0, #8]\nldr r4, [r0, #12]\n.data\nd: .single 1.5\n.float -2\n.double -0.0",
+    [ Reg (R1, 0x3FC00000u); Reg (R2, 0xC0000000u); Reg (R3, 0u); Reg (R4, 0x80000000u) ]
+    "vldr from a nearby label", "vldr s0, k\nvldr d1, k2\n.data\nk: .float 1.5\n.align 3\nk2: .double 2.0", [ VW (0, 0x3FC00000u); DW (1, 0x40000000u, 0u) ]
+    "vldr from a label too far away rejected", "vldr s0, k\n.data\n.space 2000\nk: .float 1.5", [ ParseError ]
+    "two-operand arithmetic form", "vmov.f32 s0, #2.0\nvmov.f32 s1, #3.0\nvmul.f32 s0, s1", [ VW (0, 0x40C00000u) ]
+    "conditional VFP instruction", "mov r0, #1\ncmp r0, #2\nvmoveq.f32 s0, #1.0\nvmovne.f32 s1, #1.0", [ VW (0, 0u); VW (1, 0x3F800000u) ]
+    "NEON: .f32 on d registers rejected", "vadd.f32 d0, d1, d2", [ ParseError ]
+    "NEON: integer vector type rejected", "vadd.i32 d0, d1, d2", [ ParseError ]
+    "NEON: q registers rejected", "vmov q0, q1", [ ParseError ]
+    "NEON: vld1 rejected", "vld1.32 {d0}, [r0]", [ ParseError ]
+    ".f64 on s registers rejected", "vadd.f64 s0, s1, s2", [ ParseError ]
+    "vadd without a type or registers rejected", "vadd r0, r1, r2", [ ParseError ]
+    "vmov immediate that cannot be encoded rejected", "vmov.f32 s0, #0.1", [ ParseError ]
+    "vmov immediate zero rejected", "vmov.f64 d0, #0", [ ParseError ]
+    "vldr offset not a multiple of 4 rejected", "vldr s0, [r0, #2]", [ ParseError ]
+    "vldr register offset rejected", "vldr s0, [r0, r1]", [ ParseError ]
+    "vldr write-back rejected", "vldr d0, [r0, #8]!", [ ParseError ]
+    "non-consecutive vpush list rejected", "vpush {d0, d2}", [ ParseError ]
+    "mixed vpush list rejected", "vpush {s0, d1}", [ ParseError ]
+    "more than 16 d registers rejected", "vpush {d0-d16}", [ ParseError ]
+    "vcvt with the wrong register kind rejected", "vcvt.s32.f32 s0, d0", [ ParseError ]
+    "vmov to the same two core registers rejected", "vmov r0, r0, d0", [ ParseError ]
+    "vmov s pair must be consecutive", "vmov s0, s2, r0, r1", [ ParseError ]
+    "vmov with PC rejected", "vmov pc, s0", [ ParseError ]
+    "vmsr fpexc rejected", "vmsr fpexc, r0", [ ParseError ]
+    "vmrs fpsid rejected", "vmrs r0, fpsid", [ ParseError ]
+    "msr without a field rejected", "msr apsr, r0", [ ParseError ]
+    "mrs spsr rejected", "mrs r0, spsr", [ ParseError ]
+    "fixed-point vcvt needs the same register", "vcvt.s32.f32 s0, s1, #16", [ ParseError ]
+    "fixed-point fraction bits out of range", "vcvt.s32.f32 s0, s0, #33", [ ParseError ]
+    ".float with a bad number rejected", ".data\n.float 1.2.3", [ ParseError ]
+    "unaligned vldr stops the run", "mov r0, #2\nvldr s0, [r0]", [ Expect.RunError ]
+    "unaligned vpush stops the run", "sub sp, sp, #2\nvpush {d0}", [ Expect.RunError ]
+    "short vector mode stops the run", "mov r0, #0x10000\nvmsr fpscr, r0", [ Expect.RunError ]
+]
+
+let allTests = vfpTests @ bitTests @ doubleTests @ a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 

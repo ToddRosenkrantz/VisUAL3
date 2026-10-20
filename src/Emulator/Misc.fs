@@ -103,7 +103,22 @@ module Misc
             | Some a ->
                 evalArg a |> Result.bind (fun f ->
                     if fits 1 f then Ok(f &&& 0xFFu) else makeInstructionError (sprintf "Fill value '%s' must be a byte" a))
+        /// .float/.single and .double: IEEE values, rounded exactly from the decimal text
+        let floats (fmt : FpMath.FpFormat) size =
+            let dSize = Some(uint32 (args.Length * size))
+            args
+            |> List.map (fun a ->
+                match FpMath.parseFloat fmt a with
+                | Ok raw ->
+                    let lo, hi = FpMath.wordsOfRaw raw
+                    Ok(if size = 4 then le 4 lo else le 4 lo @ le 4 hi)
+                | Error e -> makeInstructionError (sprintf "%s: %s" lop e))
+            |> mergeResults
+            |> Result.map List.concat
+            |> directive dSize
         match op with
+        | ".FLOAT" | ".SINGLE" -> floats FpMath.F32 4
+        | ".DOUBLE" -> floats FpMath.F64 8
         | ".WORD" | ".LONG" | ".INT" | ".4BYTE" -> values 4
         | ".HWORD" | ".SHORT" | ".2BYTE" -> values 2
         | ".BYTE" -> values 1

@@ -449,4 +449,5 @@ module Helpers
             Fl = { N = false; C = false; Z = false; V = false };
             Regs = emptyRegs;
             MM = Map.ofList []
+            Fp = emptyFp
         }

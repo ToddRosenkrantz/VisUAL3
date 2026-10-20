@@ -34,7 +34,7 @@ let errorStmt lineNum msg = { makeStmt lineNum None "" "" with LexError = Some m
 
 /// directives that put bytes into data memory
 let dataDirectives =
-    set [ ".WORD"; ".LONG"; ".INT"; ".4BYTE"; ".HWORD"; ".SHORT"; ".2BYTE"; ".BYTE"
+    set [ ".WORD"; ".LONG"; ".INT"; ".4BYTE"; ".HWORD"; ".SHORT"; ".2BYTE"; ".BYTE"; ".FLOAT"; ".SINGLE"; ".DOUBLE"
           ".ASCII"; ".ASCIZ"; ".STRING"; ".SPACE"; ".SKIP"; ".ZERO"; ".FILL" ]
 
 let stringDirectives = set [ ".ASCII"; ".ASCIZ"; ".STRING" ]

@@ -117,6 +117,7 @@ let initTestDP (mm : DataMemory, symTab : Expressions.SymbolTable) test =
                     };
                 Regs = initialRegMap;
                 MM = mm
+                Fp = emptyFp
              }
     let rMap' = { dp with Regs = Map.add R13 test.InitSP dp.Regs }
     let ldSpecs = [

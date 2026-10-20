@@ -480,6 +480,11 @@ let dataPathStep (dp : DataPath, code : CodeMemory<CondInstr * int>) =
                 executeMem instr' dp' |> noFlagChange
             | IBRANCH instr' ->
                 executeBranch instr' dp' |> noFlagChange
+            | IVFP instr' ->
+                // vmrs APSR_nzcv and msr write the core flags
+                instr'.Run dp'
+                |> Result.map (fun d ->
+                    d, (if d.Fl <> dp'.Fl then { DP.toUFlags d.Fl with NZU = true; CU = true; VU = true } else uFl))
             | IMISC(Misc.ADR adrInstr) ->
                 //printfn "Executing ADR"
                 executeADR adrInstr dp' |> Ok |> noFlagChange
@@ -616,6 +621,7 @@ let getRunInfoFromImageWithInits breakCond (lim : LoadImage) regsInit flagsInit 
                 Fl = flagsInit
                 Regs = regsInit
                 MM = getData mMap mm
+                Fp = emptyFp
              }
     {
         dpInit = dp;

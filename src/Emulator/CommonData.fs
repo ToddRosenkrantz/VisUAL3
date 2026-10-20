@@ -95,6 +95,15 @@ module CommonData
 
     type DataMemory = Map<WAddr, Data>
 
+    /// VFP registers (D32): word n is s<n> for n < 32; d<n> is words 2n (low) and 2n+1 (high).
+    /// Missing words are 0.
+    type FpState = {
+        W : Map<int, uint32>
+        FPSCR : uint32
+        }
+
+    let emptyFp = { W = Map.empty; FPSCR = 0u }
+
     /// ARM state as values of all registers and status bits
     /// NB PC can be found as R15 - 8. (Pipelining)
     type DataPath = {
@@ -102,4 +111,5 @@ module CommonData
         Regs : Map<RName, uint32> // map representing registers.
                                // Must be correctly initialised
         MM : DataMemory // map showing the contents of all memory
+        Fp : FpState // VFP registers and FPSCR
         }
