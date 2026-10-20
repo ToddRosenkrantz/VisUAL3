@@ -21,6 +21,12 @@ let argv : string array = jsNative
 [<Emit("__dirname")>]
 let dirname : string = jsNative
 
+[<Emit("process.platform")>]
+let platform : string = jsNative
+
+/// Window icon: Electron only reads .ico files on Windows
+let appIcon : string = path?join (dirname, "..", "app", (if platform = "win32" then "visual.ico" else "visual.png"))
+
 let printHelpMessage() =
     printfn """
 Visual2 command line options
@@ -72,7 +78,7 @@ let createMainWindow () =
                 "frame" ==> true
                 "hasShadow" ==> true
                 "backgroundColor" ==> "#5F9EA0"
-                "icon" ==> path?join (dirname, "..", "app", "visual.ico")
+                "icon" ==> appIcon
                 "webPreferences" ==> createObj [
                     // The renderer uses node (fs, path) directly and only ever loads local app pages
                     "nodeIntegration" ==> true

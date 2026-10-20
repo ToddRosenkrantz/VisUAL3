@@ -498,7 +498,7 @@ let runPage url () =
             "height" ==> 800
             "frame" ==> true
             "hasShadow" ==> true
-            "icon" ==> path.join (dirname, "visual.ico")
+            "icon" ==> appIcon ()
             "webPreferences" ==> createObj [ "devTools" ==> false; "nodeIntegration" ==> false; "contextIsolation" ==> true ]
         ]
     let window = createNew remote?BrowserWindow options
@@ -513,7 +513,7 @@ let runLocalPage (file : string) (anchor : string) () =
         createNew remote?BrowserWindow (createObj [
             "width" ==> 900
             "height" ==> 800
-            "icon" ==> path.join (dirname, "visual.ico")
+            "icon" ==> appIcon ()
             "webPreferences" ==> createObj [ "nodeIntegration" ==> false; "contextIsolation" ==> true ]
         ])
     window?setMenuBarVisibility (false) |> ignore

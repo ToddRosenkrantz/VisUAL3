@@ -1,4 +1,4 @@
-(*
+﻿(*
     VisUAL2 @ Imperial College London
     Project: A user-friendly ARM emulator in F# and Web Technologies ( Github Electron & Fable Compiler )
     Module: Renderer.Interop
@@ -47,6 +47,9 @@ let platform : string = jsNative
 
 [<Emit("__dirname")>]
 let dirname : string = jsNative
+
+/// Window icon for windows opened by the renderer: Electron only reads .ico files on Windows
+let appIcon () = path.join (dirname, (if platform = "win32" then "visual.ico" else "visual.png"))
 
 /// electron APIs available in the renderer (ipcRenderer, shell)
 let electron : obj = importAll "electron"
