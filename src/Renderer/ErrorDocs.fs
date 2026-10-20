@@ -70,11 +70,14 @@ let opDocs = [
     doc "RRX" [ ""; "S" ] "Rd := Rm rotated right one bit through C" "rrx{s}{cond} Rd, Rm" [ "rrx r0, r1"; "rrxs r2" ]
     doc "MUL" [ ""; "S" ] "Rd := Rn * Rm (low 32 bits). S sets N and Z only" "mul{s}{cond} Rd, Rn, Rm" [ "mul r0, r1, r2"; "mul r3, r3, r4"; "muls r0, r1" ]
     doc "MLA" [ ""; "S" ] "Rd := Rn * Rm + Ra (low 32 bits). S sets N and Z only" "mla{s}{cond} Rd, Rn, Rm, Ra" [ "mla r0, r1, r2, r3" ]
-    doc "LDR" [ ""; "B" ] "load a word (or byte with b) from memory into Rd" "ldr{b}{cond} Rd, address   or   ldr Rd, =value"
+    doc "LDR" [ ""; "B"; "H"; "SB"; "SH" ]
+        "load a word into Rd; b/h = byte/halfword (zero-extended), sb/sh = signed byte/halfword (sign-extended)"
+        "ldr{b|h|sb|sh}{cond} Rd, address   or   ldr Rd, =value"
         [ "ldr r0, [r1]"; "ldr r0, [r1, #4]"; "ldr r0, [r1], #4       @ post-indexed"; "ldr r0, [r1, #-8]!     @ pre-indexed, write back"
-          "ldr r0, [r1, r2, lsl #2]"; "ldrb r3, [r0, #1]"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
-    doc "STR" [ ""; "B" ] "store a word (or byte with b) from Rd into memory" "str{b}{cond} Rd, address"
-        [ "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "str r0, [sp, #-4]!" ]
+          "ldr r0, [r1, r2, lsl #2]"; "ldrb r3, [r0, #1]"; "ldrsh r2, [r0, #2]     @ h/sb/sh: offset -255..255"
+          "ldrh r2, [r0, r1]      @ h/sb/sh: register offset, no shift"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
+    doc "STR" [ ""; "B"; "H" ] "store a word from Rd into memory; b/h = its low byte/halfword" "str{b|h}{cond} Rd, address"
+        [ "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "strh r2, [r3, #2]      @ h: offset -255..255"; "str r0, [sp, #-4]!" ]
     doc "LDM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "load several registers from consecutive words (lowest register at lowest address)"
         "ldm{mode}{cond} Rn{!}, {register list}" [ "ldm r0, {r1-r3}"; "ldmia r0!, {r4, r5}"; "ldmfd sp!, {r4, pc}" ]
     doc "STM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "store several registers to consecutive words (lowest register at lowest address)"

@@ -111,7 +111,7 @@
   <tr><td>Compare (set flags only)</td><td class="mono">cmp cmn tst teq</td><td class="mono">cmp r0, #10</td></tr>
   <tr><td>Shift</td><td class="mono">lsl lsr asr ror rrx</td><td class="mono">lsl r0, r1, #3</td></tr>
   <tr><td>Multiply</td><td class="mono">mul mla</td><td class="mono">mla r0, r1, r2, r3</td></tr>
-  <tr><td>Load and store</td><td class="mono">ldr str ldrb strb</td><td class="mono">ldr r0, [r1, #4]</td></tr>
+  <tr><td>Load and store</td><td class="mono">ldr str ldrb strb ldrh strh ldrsb ldrsh</td><td class="mono">ldr r0, [r1, #4]</td></tr>
   <tr><td>Several registers</td><td class="mono">ldm stm push pop</td><td class="mono">push {r4, lr}</td></tr>
   <tr><td>Branch</td><td class="mono">b bl bx</td><td class="mono">bl sum_array</td></tr>
   <tr><td>Address of a label</td><td class="mono">adr, ldr Rd, =label</td><td class="mono">ldr r0, =table</td></tr>
@@ -145,7 +145,15 @@
   <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array.</td></tr>
   <tr><td class="mono">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
 </table>
-<p>Word loads and stores need an address that is a multiple of 4.</p>
+<p>Word loads and stores need an address that is a multiple of 4, halfword ones a multiple of 2.</p>
+<h3>Bytes and halfwords</h3>
+<table>
+  <tr><th>Instruction</th><th>Does</th></tr>
+  <tr><td class="mono">ldrb / ldrh</td><td>Load a byte / halfword and fill the upper bits with zeros (unsigned).</td></tr>
+  <tr><td class="mono">ldrsb / ldrsh</td><td>Load a byte / halfword and copy its top bit into the upper bits (signed): <code>0xFF</code> loads as −1.</td></tr>
+  <tr><td class="mono">strb / strh</td><td>Store the low byte / halfword of the register. There is no signed store.</td></tr>
+</table>
+<p><code>ldrh</code>, <code>strh</code>, <code>ldrsb</code> and <code>ldrsh</code> take a smaller set of addresses than <code>ldr</code> and <code>ldrb</code>: an immediate offset from −255 to 255, or a register offset with no shift (<code>[r1, r2]</code>, not <code>[r1, r2, lsl #1]</code>). Pre- and post-indexing work as usual.</p>
 
 <h2 id="conditions">Condition codes</h2>
 <table>
@@ -227,7 +235,7 @@
   <li>Floating point (VFP/NEON instructions, <code>float</code> and <code>double</code>): the emulated core has no FPU.</li>
   <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
-  <li>Halfword and signed loads (<code>ldrh</code>, <code>strh</code>, <code>ldrsb</code>, <code>ldrsh</code>, <code>ldrd</code>), <code>movw</code>/<code>movt</code>, <code>mls</code>, <code>umull</code>/<code>smull</code>, <code>sdiv</code>/<code>udiv</code>, <code>clz</code> and the extend instructions (<code>uxtb</code> …).</li>
+  <li>Doubleword loads and stores (<code>ldrd</code>, <code>strd</code>), <code>movw</code>/<code>movt</code>, <code>mls</code>, <code>umull</code>/<code>smull</code>, <code>sdiv</code>/<code>udiv</code>, <code>clz</code> and the extend instructions (<code>uxtb</code> …).</li>
   <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
   <li>In C calls: 64-bit types (<code>long long</code>), structs, variadic functions and function pointers.</li>
 </ul>

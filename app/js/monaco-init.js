@@ -37,7 +37,8 @@ amdRequire(['vs/editor/editor.main'], function () {
     var specs = [
       [['MOV', 'MVN', 'ADD', 'SUB', 'ADC', 'SBC', 'RSB', 'RSC', 'AND', 'ORR', 'EOR', 'BIC',
         'LSL', 'LSR', 'ASR', 'ROR', 'RRX', 'MUL', 'MLA', 'CMP', 'CMN', 'TST', 'TEQ'], ['', 'S']],
-      [['LDR', 'STR'], ['', 'B']],
+      [['LDR'], ['', 'B', 'H', 'SB', 'SH']],
+      [['STR'], ['', 'B', 'H']],
       [['LDM', 'STM'], ['', 'IA', 'IB', 'DA', 'DB', 'FD', 'ED', 'FA', 'EA']],
       [['PUSH', 'POP', 'B', 'BL', 'BX', 'ADR'], ['']]
     ];

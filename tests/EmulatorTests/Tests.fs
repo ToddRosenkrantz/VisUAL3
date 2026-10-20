@@ -733,7 +733,70 @@ let topLevelReturnTests = [
     "falling off the end still ends normally", "mov r0, #6", [ Reg (R0, 6u); Reg (R14, returnToCaller) ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests
+let halfwordTests = [
+    "LDRH / LDRSH / LDRB / LDRSB from data",
+    """    ldr r0, =d
+           ldrh r1, [r0]
+           ldrh r2, [r0, #2]
+           ldrsh r3, [r0, #2]
+           ldrb r4, [r0, #4]
+           ldrsb r5, [r0, #4]
+           ldrsb r6, [r0, #5]
+           .data
+       d:  .hword 0x1234, 0xFFFE
+           .byte 0x80, 0x7F""",
+    [ Reg (R1, 0x1234u); Reg (R2, 0xFFFEu); Reg (R3, 0xFFFFFFFEu); Reg (R4, 0x80u); Reg (R5, 0xFFFFFF80u); Reg (R6, 0x7Fu) ]
+
+    "STRH stores the low halfword, little-endian",
+    """    ldr r0, =buf
+           ldr r1, =0xABCD1234
+           strh r1, [r0, #2]
+           ldr r2, [r0]
+           strh r1, [r0]
+           ldr r3, [r0]
+           .data
+       buf: .space 8""",
+    [ Reg (R2, 0x12340000u); Reg (R3, 0x12341234u) ]
+
+    "halfword addressing: post-index, pre-index writeback, register and negative offsets",
+    """    ldr r0, =d
+           ldrh r1, [r0], #2
+           ldrsh r2, [r0, #2]!
+           mov r4, #-2
+           ldrh r3, [r0, r4]
+           ldrh r5, [r0, #-4]
+           .data
+       d:  .hword 10, 20, 0xFFF0""",
+    [ Reg (R1, 10u); Reg (R2, 0xFFFFFFF0u); Reg (R3, 20u); Reg (R5, 10u) ]
+
+    "conditional and lower/upper case",
+    """    ldr r0, =d
+           cmp r0, r0
+           LDRSHEQ r1, [r0]
+           ldrshne r2, [r0]
+           .data
+       d:  .hword -5""",
+    [ Reg (R1, 0xFFFFFFFBu); Reg (R2, 0u) ]
+
+    "LDRHS is LDR with condition HS, not a halfword load",
+    """    ldr r2, =d
+           cmp r0, r0
+           ldrhs r1, [r2]
+           .data
+       d:  .word 0x11223344""",
+    [ Reg (R1, 0x11223344u) ]
+
+    "halfword offset 255 accepted", "mov r1, #1\nldrh r0, [r1, #255]", [ Reg (R0, 0u) ]
+    "halfword offset 256 rejected", "ldrh r0, [r1, #256]", [ ParseError ]
+    "halfword shifted register offset rejected", "ldrsh r0, [r1, r2, lsl #1]", [ ParseError ]
+    "STRSB rejected", "strsb r0, [r1]", [ ParseError ]
+    "STRSH rejected", "strsh r0, [r1]", [ ParseError ]
+    "LDRSB has no =value form", "ldrsb r0, =5", [ ParseError ]
+    "misaligned LDRH stops the run", "ldr r0, =d\nldrh r1, [r0, #1]\n.data\nd: .word 0", [ Expect.RunError ]
+    "misaligned STRH stops the run", "ldr r0, =d\nstrh r1, [r0, #3]\n.data\nd: .word 0", [ Expect.RunError ]
+]
+
+let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 

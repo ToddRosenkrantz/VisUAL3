@@ -248,7 +248,7 @@ let toolTipInfo (v : int, orientation : string)
                 let baseAddr = int32 baseAddrU
                 let offset = (ins.MAddr dp baseAddr |> uint32) - baseAddrU |> int32
                 let ea = match ins.MemMode with | Memory.PreIndex | Memory.NoIndex -> (baseAddrU + uint32 offset) | _ -> baseAddrU
-                let mData = (match ins.MemSize with | MWord -> Memory.getDataMemWord | MByte -> Memory.getDataMemByte) ea dp
+                let mData = (match ins.MemSize with | MWord -> Memory.getDataMemWord | MByte -> Memory.getDataMemByte | MHalf -> Memory.getDataMemHalf) ea dp
                 let isIncr = match ins.MemMode with | Memory.NoIndex -> false | _ -> true
                 (findCodeEnd v, "Pointer"), TABLE [] [
                     TROWS [ sprintf "Base (%s)" (ins.Rb.ToString()); sprintf "0x%08X" baseAddrU ]
@@ -261,7 +261,8 @@ let toolTipInfo (v : int, orientation : string)
                                     |> fun d ->
                                         match ins.MemSize with
                                         | MWord -> sprintf "0x%08X" d
-                                        | MByte -> sprintf "0x%02X" ((uint32 d) % 256u) ]
+                                        | MByte -> sprintf "0x%02X" ((uint32 d) % 256u)
+                                        | MHalf -> sprintf "0x%04X" ((uint32 d) % 65536u) ]
                     ]
 
             let makeTip memInfo =
