@@ -1528,7 +1528,6 @@ let cTests : (string * (unit -> string list)) list = [
         @ protoIs "void f(void)" "void f()"
     "prototype: arrays, pointer to pointer, return pointer", fun () ->
         protoIs "int *h(int a[], char **argv, const char *const s)" "int * h(int * a, char * * argv, const char * s)"
-    "prototype: double rejected", fun () -> protoFails "double f(int x)" "no FPU"
     "prototype: long long rejected", fun () -> protoFails "long long f(int x)" "64-bit"
     "prototype: varargs rejected", fun () -> protoFails "int printf(const char *fmt, ...)" "variadic"
     "prototype: struct rejected", fun () -> protoFails "int f(struct point p)" "struct"
@@ -1663,6 +1662,54 @@ let cTests : (string * (unit -> string list)) list = [
         | Ok(_, { Outcome = RanOffEnd }) -> []
         | Ok(_, res) -> [ sprintf "outcome %A" res.Outcome ]
         | Error e -> [ e ]
+    "float: prototype with float, double and float pointers", fun () ->
+        protoIs "double f(float x, double y, const float *a, double b[])" "double f(float x, double y, const float * a, double * b)"
+        @ protoFails "long double f(void)" "long double"
+    "float: AAPCS-VFP argument locations, back-filling and the stack", fun () ->
+        let locs ts = argLocations ts |> fun (l, n) -> List.map argLocText l, n
+        let i, f, d = CIntT(CInt32 true), CFloat false, CFloat true
+        expectEq "mixed" (locs [ i; f; d; f; i; d ]) ([ "r0"; "s0"; "d1"; "s1"; "r1"; "d2" ], 0)
+        @ expectEq "back-fill" (locs [ f; d; f ]) ([ "s0"; "d1"; "s1" ], 0)
+        @ expectEq "17 floats" (locs (List.replicate 17 f) |> fun (l, n) -> List.last l, n) ("[sp, #0]", 4)
+        @ expectEq "stack double aligned" (locs ([ i; i; i; i; i ] @ List.replicate 9 d) |> fun (l, n) -> l.[4], List.last l, n) ("[sp, #0]", "[sp, #8]", 16)
+        @ expectEq "no back-fill after the stack" (locs ([ f ] @ List.replicate 8 d @ [ f ]) |> fun (l, n) -> List.last l, n) ("[sp, #8]", 12)
+    "float: float and double results in s0 and d0", fun () ->
+        let add2 = "@ C: float add2(float a, float b);\n.global add2\nadd2:\nvadd.f32 s0, s0, s1\nbx lr"
+        let hyp = "@ C: double hyp(double x, double y);\n.global hyp\nhyp:\nvmul.f64 d0, d0, d0\nvmla.f64 d0, d1, d1\nvsqrt.f64 d0, d0\nbx lr"
+        match cCall add2 [ "0.1"; "0.2" ], cCall hyp [ "3"; "4" ] with
+        | Ok(s1, r1), Ok(_, r2) ->
+            expectEq "add2" r1.ReturnText "0.3" @ expectEq "add2 bits" r1.ReturnValue (Some 0x3E99999AL)
+            @ expectEq "hyp" r2.ReturnText "5.0" @ expectEq "problems" (r1.Problems @ r2.Problems) []
+            @ expectEq "summary" (formatCall s1 r1 |> List.head) "add2(a=0.1, b=0.2)"
+        | e1, e2 -> [ sprintf "%A %A" e1 e2 ]
+    "float: arrays of float, and int arguments mixed in", fun () ->
+        let dot = """@ C: float dot(const float *a, const float *b, int n);
+    .global dot
+dot:
+    vsub.f32 s0, s0, s0
+1:  vldmia r0!, {s2}
+    vldmia r1!, {s3}
+    vmla.f32 s0, s2, s3
+    subs r2, r2, #1
+    bne 1b
+    bx lr"""
+        let scale = "@ C: int scale(float x, int k);\n.global scale\nscale:\nvmov s1, r0\nvcvt.f32.s32 s1, s1\nvmul.f32 s0, s0, s1\nvcvt.s32.f32 s0, s0\nvmov r0, s0\nbx lr"
+        let fill = "@ C: void fill(double *a, int n);\n.global fill\nfill:\nvmov.f64 d1, #1.5\n1: vstmia r0!, {d1}\nsubs r1, r1, #1\nbne 1b\nbx lr"
+        match cCall dot [ "{1, 2, 3}"; "{4, 5, 6.5}"; "3" ], cCall scale [ "2.5"; "3" ], cCall fill [ "[2]"; "2" ] with
+        | Ok(_, r1), Ok(_, r2), Ok(s3, r3) ->
+            expectEq "dot" r1.ReturnText "33.5" @ expectEq "scale" r2.ReturnValue (Some 7L)
+            @ expectEq "fill" (formatCall s3 r3 |> List.item 2) "  a[2]: {*1.5, *1.5}"
+        | e1, e2, e3 -> [ sprintf "%A %A %A" e1 e2 e3 ]
+    "float: a ninth double goes on the stack", fun () ->
+        let ninth = "@ C: double ninth(double a, double b, double c, double d, double e, double f, double g, double h, double i);\n.global ninth\nninth:\nvldr d0, [sp]\nbx lr"
+        match cCall ninth [ "1"; "2"; "3"; "4"; "5"; "6"; "7"; "8"; "9" ] with
+        | Ok(_, r) -> expectEq "ninth" r.ReturnText "9.0"
+        | Error e -> [ e ]
+    "float: s16-s31 and the FPSCR controls must be preserved", fun () ->
+        hasProblem "@ C: void bad(void);\n.global bad\nbad:\nvmov.f32 s16, #1.0\nbx lr" [] "s16 was not preserved"
+        @ hasProblem "@ C: void bad(void);\n.global bad\nbad:\nmov r0, #0x00C00000\nvmsr fpscr, r0\nbx lr" [] "FPSCR control bits"
+        @ returns "@ C: float ok(float x);\n.global ok\nok:\nvpush {s16}\nvmov.f32 s16, #2.0\nvmul.f32 s0, s0, s16\nvpop {s16}\nbx lr" [ "1.5" ] 0x40400000L 0
+    "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with
         | Ok(setup, res) -> expectEq "summary" (formatCall setup res) [ "sum_array(a=&a[0], n=3)"; "  returned 6 (0x6)"; "  a[3]: {1, 2, 3}" ]

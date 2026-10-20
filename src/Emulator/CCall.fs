@@ -8,7 +8,8 @@
 /// Call an assembly function the way compiled C does (AAPCS), from a prototype
 /// written in the source as a comment:
 ///     @ C: extern int sum_array(const int *a, int n);
-/// Arguments go in r0-r3 then on the stack; pointer arguments are buffers the
+/// Arguments follow the hard-float (armv7hf) AAPCS: integers and pointers in r0-r3,
+/// float and double in s0-s15/d0-d7, the rest on the stack; pointer arguments are buffers the
 /// emulator builds in a caller area of memory. After the run the return value,
 /// buffers and calling-convention checks are decoded according to the prototype.
 module CCall
@@ -31,6 +32,8 @@ type CType =
     | CVoid
     | CIntT of CInt
     | CPtr of pointee : CType * isConst : bool
+    /// float (false) or double (true), passed in VFP registers (hard-float)
+    | CFloat of isDouble : bool
 
 type CParam = { PName : string; PType : CType }
 
@@ -51,6 +54,7 @@ let rec typeName t =
     | CIntT(CInt32 s) -> if s then "int" else "unsigned int"
     | CIntT CBool -> "_Bool"
     | CPtr(p, c) -> (if c then "const " else "") + typeName p + " *"
+    | CFloat d -> if d then "double" else "float"
 
 /// size in bytes of a value of type t in memory
 let sizeOf t =
@@ -58,6 +62,7 @@ let sizeOf t =
     | CIntT(CChar _) | CIntT CBool -> 1
     | CIntT(CShort _) -> 2
     | CIntT(CInt32 _) | CPtr _ -> 4
+    | CFloat d -> if d then 8 else 4
     | CVoid -> 1 // void * buffers are bytes
 
 /// Range of values allowed for an integer type
@@ -70,6 +75,7 @@ let rangeOf t =
     | CIntT(CInt32 true) -> -2147483648L, 2147483647L
     | CIntT(CInt32 false) | CPtr _ -> 0L, 4294967295L
     | CIntT CBool -> 0L, 1L
+    | CFloat _ -> 0L, 0L // floating point values are not range-checked as integers
 
 let isSigned t =
     match t with
@@ -88,6 +94,15 @@ let decodeValue t (w : uint32) : int64 =
 
 /// The register value AAPCS requires for value v of type t (sign or zero extended)
 let extendValue t (v : int64) = uint32 (decodeValue t (uint32 (v &&& 0xFFFFFFFFL)) &&& 0xFFFFFFFFL)
+
+let fpFormat isDouble = if isDouble then FpMath.F64 else FpMath.F32
+
+/// floating point values are kept as their raw bits in an int64
+let bitsOfRaw (raw : bigint) = let lo, hi = FpMath.wordsOfRaw raw in int64 lo ||| (int64 hi <<< 32)
+let rawOfBits (v : int64) = FpMath.rawOfWords (uint32 (v &&& 0xFFFFFFFFL)) (uint32 ((v >>> 32) &&& 0xFFFFFFFFL))
+
+/// a float or double value as text, e.g. 0.1 or -2.5e-7
+let formatFloat isDouble (bits : int64) = FpMath.format (fpFormat isDouble) (rawOfBits bits)
 
 // ///////////////////////////// prototype parsing ///////////////////////////////
 
@@ -128,8 +143,9 @@ let private baseType (words : string list) : Result<CType, string> =
     | [ "unsigned" ] | [ "unsigned"; "int" ] | [ "unsigned"; "long" ] | [ "unsigned"; "long"; "int" ]
     | [ "uint32_t" ] | [ "uintptr_t" ] | [ "size_t" ] -> Ok(CIntT(CInt32 false))
     | [ "_Bool" ] | [ "bool" ] -> Ok(CIntT CBool)
-    | ws when List.contains "float" ws || List.contains "double" ws ->
-        Error "float and double are not supported (the emulated core has no FPU)"
+    | [ "float" ] -> Ok(CFloat false)
+    | [ "double" ] -> Ok(CFloat true)
+    | [ "long"; "double" ] -> Error "long double is not supported"
     | ws when (ws |> List.filter ((=) "long")).Length = 2 || List.contains "int64_t" ws || List.contains "uint64_t" ws ->
         Error "64-bit types (long long, int64_t) are not supported yet"
     | "struct" :: _ | "union" :: _ | "enum" :: _ -> Error "struct, union and enum types are not supported"
@@ -293,12 +309,64 @@ let callerArea = 0x10000000u
 /// Distinct values in r4-r11 at the call, so callee-saved violations are visible
 let calleeSavedInit = [ R4; R5; R6; R7; R8; R9; R10; R11 ] |> List.mapi (fun i r -> r, 0xC0DE0004u + uint32 i)
 
+/// s16-s31 (d8-d15) are callee-saved too: at the call they hold 16.0 to 31.0
+let vfpSavedInit =
+    [ 16 .. 31 ] |> List.map (fun n -> n, FpMath.wordOfRaw (match FpMath.parseFloat FpMath.F32 (string n) with | Ok r -> r | Error _ -> 0I))
+
+/// FPSCR fields a function must preserve (AAPCS): rounding mode, FZ, DN, Len and Stride
+let fpscrPreserved = 0x03F70000u
+
+/// Where an argument goes under the hard-float AAPCS
+type ArgLoc =
+    | LCore of int // r0-r3
+    | LS of int // s0-s15
+    | LD of int // d0-d7
+    | LStack of int // byte offset from SP at the call
+
+let argLocText = function
+    | LCore n -> sprintf "r%d" n
+    | LS n -> sprintf "s%d" n
+    | LD n -> sprintf "d%d" n
+    | LStack off -> sprintf "[sp, #%d]" off
+
+/// Allocate arguments (AAPCS with the VFP variant): integers and pointers in r0-r3, float in the
+/// lowest free s0-s15 (back-filling a gap left by a double), double in the lowest free even pair
+/// d0-d7; when a kind runs out, its arguments go on the stack (8-byte aligned for double).
+/// Returns the locations and the number of stack bytes.
+let argLocations (types : CType list) =
+    let used = Array.create 16 false
+    let mutable ncrn = 0
+    let mutable nsaa = 0
+    let mutable vfpOnStack = false
+    let stack size =
+        nsaa <- (nsaa + size - 1) / size * size
+        let off = nsaa
+        nsaa <- nsaa + size
+        LStack off
+    let locs =
+        types |> List.map (fun t ->
+            match t with
+            | CFloat false ->
+                match (if vfpOnStack then None else List.tryFind (fun i -> not used.[i]) [ 0 .. 15 ]) with
+                | Some i -> used.[i] <- true; LS i
+                | None -> vfpOnStack <- true; stack 4
+            | CFloat true ->
+                match (if vfpOnStack then None else List.tryFind (fun d -> not used.[2 * d] && not used.[2 * d + 1]) [ 0 .. 7 ]) with
+                | Some d -> used.[2 * d] <- true; used.[2 * d + 1] <- true; LD d
+                | None -> vfpOnStack <- true; stack 8
+            | _ when ncrn < 4 -> ncrn <- ncrn + 1; LCore(ncrn - 1)
+            | _ -> stack 4)
+    locs, nsaa
+
 type CallSetup = {
     Proto : Prototype
     Run : RunInfo
     Buffers : Buffer list
-    ArgWords : uint32 list // argument words in order: r0-r3 then stack
+    ArgWords : uint32 list // argument words in order (the low word of a float or double)
+    ArgBits : int64 list // argument values in order: the word, or a float/double's raw bits
+    ArgLocs : ArgLoc list
     SPAtCall : uint32
+    FpAtCall : FpState
     FuncAddr : uint32
     Warnings : string list
 }
@@ -316,6 +384,10 @@ let private evalValue (syms : Map<string, uint32>) (t : CType) (txt : string) : 
         | Error(``Undefined symbol`` [ (s, _) ]) -> Error(sprintf "'%s' is not a number or a label in the program" s)
         | Error e -> Error(sprintf "%A" e)
     | _ -> Error(sprintf "'%s' is not a valid number" txt)
+
+/// a float or double typed by the user, as raw bits
+let private evalFloat isDouble (txt : string) : Result<int64, string> =
+    FpMath.parseFloat (fpFormat isDouble) txt |> Result.map bitsOfRaw
 
 /// Build the machine state for calling proto with args, using the program in lim
 let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype) (args : ArgInput list) : Result<CallSetup, string list> =
@@ -347,47 +419,62 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                 next <- (next + uint32 (max 1 bytes.Length) + 7u) &&& 0xFFFFFFF8u
                 buffers <- buffers @ [ { BParam = p.PName; BAddr = addr; BElem = elem; BCount = values.Length; BConst = isConst; BInitial = values } ]
                 addr
-            let argWord (p : CParam) (a : ArgInput) : Result<uint32, string> =
+            let argWord (p : CParam) (a : ArgInput) : Result<int64, string> =
                 let where msg = sprintf "%s: %s" p.PName msg
+                let word (r : Result<uint32, string>) = r |> Result.map int64
                 match p.PType, a with
-                | CPtr _, Value _ | (CVoid | CIntT _), (Elements _ | Str _ | OutBuffer _ | Address _) ->
+                | CPtr _, Value _ | (CVoid | CIntT _ | CFloat _), (Elements _ | Str _ | OutBuffer _ | Address _) ->
                     Error(where "wrong kind of argument for this type")
-                | (CVoid | CIntT _) as t, Value v -> evalValue syms t v |> Result.map (extendValue t) |> Result.mapError where
+                | CFloat d, Value v -> evalFloat d v |> Result.mapError where
+                | (CVoid | CIntT _) as t, Value v -> evalValue syms t v |> Result.map (extendValue t) |> word |> Result.mapError where
                 | CPtr(elem, isConst), Elements es ->
+                    let one e = match elem with | CFloat d -> evalFloat d e | _ -> evalValue syms elem e
                     let rec evalAll acc es =
                         match es with
                         | [] -> Ok(List.rev acc)
-                        | e :: rest -> evalValue syms elem e |> Result.bind (fun v -> evalAll (v :: acc) rest)
-                    evalAll [] es |> Result.map (alloc p elem isConst) |> Result.mapError where
+                        | e :: rest -> one e |> Result.bind (fun v -> evalAll (v :: acc) rest)
+                    evalAll [] es |> Result.map (alloc p elem isConst) |> word |> Result.mapError where
                 | CPtr((CIntT(CChar _) | CVoid) as elem, isConst), Str s ->
                     GnuLex.parseStringLiteral s
                     |> Result.map (fun bytes -> alloc p elem isConst ((bytes |> List.map int64) @ [ 0L ]))
-                    |> Result.mapError where
+                    |> word |> Result.mapError where
                 | CPtr _, Str _ -> Error(where "a string can only be passed to a char * parameter")
-                | CPtr(elem, isConst), OutBuffer n -> Ok(alloc p elem isConst (List.replicate n 0L))
-                | CPtr _, Address s when s.Trim() = "NULL" -> Ok 0u
-                | CPtr(elem, _), Address s -> evalValue syms (CIntT(CInt32 false)) s |> Result.map uint32 |> Result.mapError where
+                | CPtr(elem, isConst), OutBuffer n -> Ok(int64 (alloc p elem isConst (List.replicate n 0L)))
+                | CPtr _, Address s when s.Trim() = "NULL" -> Ok 0L
+                | CPtr(elem, _), Address s -> evalValue syms (CIntT(CInt32 false)) s |> Result.mapError where
             let results = List.map2 argWord proto.Params args
             match results |> List.choose (function | Error e -> Some e | _ -> None) with
             | errs when errs <> [] -> fail errs
             | _ ->
-                let words = results |> List.map (function | Ok w -> w | Error _ -> 0u)
-                let regArgs = List.truncate 4 words
-                let stackArgs = if words.Length > 4 then List.skip 4 words else []
+                let values = results |> List.map (function | Ok w -> w | Error _ -> 0L)
+                let locs, stackBytes = argLocations (proto.Params |> List.map (fun p -> p.PType))
                 // AAPCS: stacked arguments start at SP, which is 8-byte aligned at the call
-                let sp = (initStackPointer - 4u * uint32 stackArgs.Length) &&& 0xFFFFFFF8u
-                mem <- addBytesToMem sp mem (stackArgs |> List.collect (fun w -> List.init 4 (fun i -> (w >>> (8 * i)) &&& 0xFFu)))
-                let regs =
+                let sp = (initStackPointer - uint32 stackBytes) &&& 0xFFFFFFF8u
+                let lo (v : int64) = uint32 (v &&& 0xFFFFFFFFL)
+                let hi (v : int64) = uint32 ((v >>> 32) &&& 0xFFFFFFFFL)
+                let bytesOf (w : uint32) = List.init 4 (fun i -> (w >>> (8 * i)) &&& 0xFFu)
+                let mutable regs =
                     initialRegMap
                     |> Map.add R13 sp
                     |> Map.add R14 returnToCaller
                     |> Map.add R15 faddr
                     |> fun m -> List.fold (fun m (r, v) -> Map.add r v m) m calleeSavedInit
-                    |> fun m -> List.fold (fun m (i, w) -> Map.add (register i) w m) m (List.indexed regArgs)
+                let mutable fpWords = vfpSavedInit |> Map.ofList
+                for (p, loc), v in List.zip (List.zip proto.Params locs) values do
+                    match loc, p.PType with
+                    | LCore n, _ -> regs <- Map.add (register n) (lo v) regs
+                    | LS n, _ -> fpWords <- Map.add n (lo v) fpWords
+                    | LD n, _ -> fpWords <- fpWords |> Map.add (2 * n) (lo v) |> Map.add (2 * n + 1) (hi v)
+                    | LStack off, CFloat true -> mem <- addBytesToMem (sp + uint32 off) mem (bytesOf (lo v) @ bytesOf (hi v))
+                    | LStack off, _ -> mem <- addBytesToMem (sp + uint32 off) mem (bytesOf (lo v))
+                let fp = { emptyFp with W = fpWords }
                 let flags = { N = false; Z = false; C = false; V = false }
-                let ri = getRunInfoFromImageWithInits NoBreak lim regs flags Map.empty mem
-                Ok { Proto = proto; Run = ri; Buffers = buffers; ArgWords = words
-                     SPAtCall = sp; FuncAddr = faddr; Warnings = warnings }
+                let ri =
+                    let ri = getRunInfoFromImageWithInits NoBreak lim regs flags Map.empty mem
+                    let dp = { ri.dpInit with Fp = fp }
+                    { ri with dpInit = dp; dpCurrent = (dp, snd ri.dpCurrent) }
+                Ok { Proto = proto; Run = ri; Buffers = buffers; ArgWords = values |> List.map lo; ArgBits = values; ArgLocs = locs
+                     SPAtCall = sp; FpAtCall = fp; FuncAddr = faddr; Warnings = warnings }
 
 // ///////////////////////////// results ///////////////////////////////////////
 
@@ -419,8 +506,11 @@ let readByte (mm : DataMemory) (a : uint32) =
 
 let readValue (mm : DataMemory) (t : CType) (a : uint32) =
     let n = sizeOf t
-    let w = List.init n (fun i -> readByte mm (a + uint32 i) <<< (8 * i)) |> List.fold (|||) 0u
-    decodeValue t w
+    let word a n = List.init n (fun i -> readByte mm (a + uint32 i) <<< (8 * i)) |> List.fold (|||) 0u
+    match t with
+    | CFloat true -> int64 (word a 4) ||| (int64 (word (a + 4u) 4) <<< 32)
+    | CFloat false -> int64 (word a 4)
+    | _ -> decodeValue t (word a n)
 
 /// Describe an address: inside an argument buffer, or relative to a program label
 let describeAddress (setup : CallSetup) (a : uint32) =
@@ -440,6 +530,7 @@ let describeAddress (setup : CallSetup) (a : uint32) =
 
 let private formatValue t (v : int64) =
     match t with
+    | CFloat d -> formatFloat d v
     | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char (int v))
     | CIntT CBool -> if v = 0L then "false" else "true"
     | _ when v < 0L -> sprintf "%d (0x%X)" v (uint32 (v &&& 0xFFFFFFFFL))
@@ -458,7 +549,13 @@ let decodeResult (setup : CallSetup) (ri : RunInfo) : CallResult =
         | PSError(NotInstrMem a) -> RunError(sprintf "jumped to 0x%X, which is not code" a)
         | PSError e -> RunError(sprintf "%A" e)
     let ret = setup.Proto.Ret
-    let retVal = match ret with | CVoid -> None | t -> Some(decodeValue t r0)
+    let fpWord n = Map.tryFind n dp.Fp.W |> Option.defaultValue 0u
+    let retVal =
+        match ret with
+        | CVoid -> None
+        | CFloat false -> Some(int64 (fpWord 0)) // s0
+        | CFloat true -> Some(int64 (fpWord 0) ||| (int64 (fpWord 1) <<< 32)) // d0
+        | t -> Some(decodeValue t r0)
     let returnText =
         match ret, retVal with
         | CVoid, _ -> "void"
@@ -483,6 +580,13 @@ let decodeResult (setup : CallSetup) (ri : RunInfo) : CallResult =
                       yield sprintf "%A was not preserved (0x%X at call, 0x%X at return): r4-r11 are callee-saved" r v dp.Regs.[r]
               if dp.Regs.[R13] <> setup.SPAtCall then
                   yield sprintf "SP not restored (0x%X at call, 0x%X at return)" setup.SPAtCall dp.Regs.[R13]
+              for (n, v) in vfpSavedInit do
+                  if fpWord n <> v then
+                      yield sprintf "s%d was not preserved (%s at call, %s at return): s16-s31 (d8-d15) are callee-saved"
+                                    n (formatFloat false (int64 v)) (formatFloat false (int64 (fpWord n)))
+              if (dp.Fp.FPSCR &&& fpscrPreserved) <> (setup.FpAtCall.FPSCR &&& fpscrPreserved) then
+                  yield sprintf "FPSCR control bits changed (0x%08X at call, 0x%08X at return): the rounding mode, FZ and DN must be restored"
+                                setup.FpAtCall.FPSCR dp.Fp.FPSCR
               match ret with
               | CIntT t when sizeOf ret < 4 && r0 <> extendValue ret (decodeValue ret r0) ->
                   yield sprintf "r0 = 0x%X is not a properly %s-extended %s: AAPCS requires the callee to extend narrow results"
@@ -506,11 +610,12 @@ let callFunction (lim : LoadImage) (sourceLines : string list) (proto : Prototyp
 let formatCall (setup : CallSetup) (res : CallResult) =
     let p = setup.Proto
     let argText =
-        List.zip p.Params setup.ArgWords
+        List.zip p.Params setup.ArgBits
         |> List.map (fun (prm, w) ->
             match prm.PType with
-            | CPtr _ -> sprintf "%s=%s" prm.PName (describeAddress setup w)
-            | t -> sprintf "%s=%d" prm.PName (decodeValue t w))
+            | CPtr _ -> sprintf "%s=%s" prm.PName (describeAddress setup (uint32 w))
+            | CFloat d -> sprintf "%s=%s" prm.PName (formatFloat d w)
+            | t -> sprintf "%s=%d" prm.PName (decodeValue t (uint32 w)))
         |> String.concat ", "
     [ yield sprintf "%s(%s)" p.FName argText
       match res.Outcome with
@@ -519,7 +624,9 @@ let formatCall (setup : CallSetup) (res : CallResult) =
       | StepLimit n -> yield sprintf "  did not return after %d instructions (infinite loop?)" n
       | RunError e -> yield sprintf "  run time error %s" e
       for br in res.BufferResults do
-          let show i v = (if List.contains i br.Changed then "*" else "") + string v
+          let show i v =
+              (if List.contains i br.Changed then "*" else "")
+              + (match br.Buffer.BElem with | CFloat d -> formatFloat d v | _ -> string v)
           yield sprintf "  %s[%d]: {%s}" br.Buffer.BParam br.Buffer.BCount (br.After |> List.mapi show |> String.concat ", ")
       for prob in res.Problems do
           yield sprintf "  warning: %s" prob ]

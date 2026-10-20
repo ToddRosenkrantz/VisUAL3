@@ -51,8 +51,10 @@ let private txt tag cls (s : string) =
 
 // ///////////////////////////// parameters ///////////////////////////////////
 
-/// AAPCS location of argument i (words: r0-r3 then the stack)
-let argLocation i = if i < 4 then sprintf "r%d" i else sprintf "[sp, #%d]" ((i - 4) * 4)
+/// AAPCS (hard-float) location of argument i of proto: r0-r3, s0-s15, d0-d7 or the stack
+let argLocation (proto : Prototype) i =
+    let locs, _ = argLocations (proto.Params |> List.map (fun p -> p.PType))
+    argLocText locs.[i]
 
 let private isCharLike t = match t with | CIntT(CChar _) | CVoid -> true | _ -> false
 
@@ -83,11 +85,14 @@ let private valueHint t =
     | CIntT(CShort false) -> "0..65535"
     | CIntT(CInt32 true) -> "e.g. 42, -1, 0x1F, 'A'"
     | CIntT(CInt32 false) -> "e.g. 42, 0xFFFFFFFF"
+    | CFloat _ -> "e.g. 1.5, -0.25, 3e8"
     | _ -> ""
 
 let private ptrHint kind elem =
     match kind with
-    | PArray -> sprintf "elements, e.g. {10, -2, 0x30} (%s, %d byte%s each)" (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
+    | PArray ->
+        let example = match elem with | CFloat _ -> "{1.5, -2, 0.25}" | _ -> "{10, -2, 0x30}"
+        sprintf "elements, e.g. %s (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
     | PString -> "text, e.g. hello\\n (a 0 byte is added)"
     | POut -> "number of zeroed elements, e.g. 4"
     | PAddr -> "a label from the program, an address, or NULL"
@@ -98,7 +103,7 @@ let private argOf (p : CParam) (inp : ParamInput) : Result<ArgInput, string> =
     let need what = Error(sprintf "%s: enter %s" p.PName what)
     match p.PType, inp.Kind with
     | CIntT CBool, _ -> Ok(Value(if t = "1" then "1" else "0"))
-    | (CIntT _ | CVoid), _ -> if t = "" then need "a value" else Ok(Value t)
+    | (CIntT _ | CVoid | CFloat _), _ -> if t = "" then need "a value" else Ok(Value t)
     | CPtr _, PArray ->
         let inner = if t.StartsWith "{" && t.EndsWith "}" then t.Substring(1, t.Length - 2) else t
         Ok(Elements(GnuLex.splitArgs inner))
@@ -153,7 +158,7 @@ and onRunEnd (ri : ExecutionTop.RunInfo) =
 
 and private paramRow (proto : Prototype) (i : int) (p : CParam) =
     let inp = inputOf proto p
-    let loc = txt "td" "ccall-loc" (argLocation i)
+    let loc = txt "td" "ccall-loc" (argLocation proto i)
     let name = txt "td" "ccall-param" (sprintf "%s %s" (typeName p.PType) p.PName)
     let control =
         match p.PType with
@@ -198,6 +203,7 @@ and private paramRow (proto : Prototype) (i : int) (p : CParam) =
 and private formatElem (t : CType) (v : int64) =
     match t with
     | CPtr _ -> sprintf "0x%X" v
+    | CFloat d -> formatFloat d v
     | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char (int v))
     | CIntT CBool -> if v = 0L then "false" else "true"
     | _ -> string v
@@ -214,8 +220,13 @@ and private resultView (setup : CallSetup) (res : CallResult) =
         match res.Outcome, p.Ret with
         | Returned, CVoid -> [ txt "div" "" "void function: r0 is not a result" ]
         | Returned, t ->
+            let raw =
+                match t, res.ReturnValue with
+                | CFloat false, Some v -> sprintf "s0 = 0x%08X" (uint32 v)
+                | CFloat true, Some v -> sprintf "d0 = 0x%08X_%08X" (uint32 ((v >>> 32) &&& 0xFFFFFFFFL)) (uint32 (v &&& 0xFFFFFFFFL))
+                | _ -> sprintf "r0 = 0x%08X" res.R0
             [ txt "div" "ccall-return" (sprintf "%s result: %s" (typeName t) res.ReturnText)
-              txt "div" "ccall-raw" (sprintf "r0 = 0x%08X" res.R0) ]
+              txt "div" "ccall-raw" raw ]
         | _ -> []
     let buffers =
         res.BufferResults |> List.map (fun br ->
@@ -241,8 +252,8 @@ and private helpView () =
     el "div" "ccall-help" [
         txt "p" "" "Declare a function with a C prototype in a comment, then call it from here:"
         txt "pre" "" "@ C: extern int sum_array(const int *a, int n);\n        .global sum_array\nsum_array:\n        ...\n        bx lr"
-        txt "p" "" "Types: char, signed/unsigned char, short, int, long, unsigned, int8_t..uint32_t, size_t, _Bool, pointers to these or void (const allowed), and arrays as pointers. Returns: void, the integer types, _Bool and pointers."
-        txt "p" "" "Arguments are passed as AAPCS requires: the first four in r0-r3, the rest on the stack. Pointer arguments are built in memory at 0x10000000." ]
+        txt "p" "" "Types: char, signed/unsigned char, short, int, long, unsigned, int8_t..uint32_t, size_t, _Bool, float, double, pointers to these or void (const allowed), and arrays as pointers. Returns: void, the integer types, _Bool, float, double and pointers."
+        txt "p" "" "Arguments are passed as the hard-float AAPCS (armv7hf) requires: integers and pointers in r0-r3, float in s0-s15 and double in d0-d7, the rest on the stack. Results come back in r0, s0 or d0. Pointer arguments are built in memory at 0x10000000." ]
 
 and render () =
     let root = getHtml "view-call"
