@@ -453,6 +453,7 @@ let makeTooltip (theme : string) (placement : string) (clickable : bool) (button
             "trigger" ==> (if clickable then "click" else "mouseenter focus")
             "theme" ==> theme
             "placement" ==> placement
+            "maxWidth" ==> "none" // size to content: the shift diagram is 700px wide
             "appendTo" ==> (fun () -> document.body)
         ])
 
