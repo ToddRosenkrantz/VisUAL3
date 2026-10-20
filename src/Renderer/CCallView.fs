@@ -85,6 +85,8 @@ let private valueHint t =
     | CIntT(CShort false) -> "0..65535"
     | CIntT(CInt32 true) -> "e.g. 42, -1, 0x1F, 'A'"
     | CIntT(CInt32 false) -> "e.g. 42, 0xFFFFFFFF"
+    | CIntT(CInt64 true) -> "e.g. -5, 3000000000, 0x7FFFFFFFFFFFFFFF"
+    | CIntT(CInt64 false) -> "e.g. 42, 0xFFFFFFFFFFFFFFFF"
     | CFloat _ -> "e.g. 1.5, -0.25, 3e8"
     | _ -> ""
 
@@ -204,6 +206,7 @@ and private formatElem (t : CType) (v : int64) =
     match t with
     | CPtr _ -> sprintf "0x%X" v
     | CFloat d -> formatFloat d v
+    | CIntT(CInt64 false) -> string (uint64 v)
     | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char (int v))
     | CIntT CBool -> if v = 0L then "false" else "true"
     | _ -> string v

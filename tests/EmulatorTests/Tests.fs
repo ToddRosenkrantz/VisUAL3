@@ -1528,7 +1528,6 @@ let cTests : (string * (unit -> string list)) list = [
         @ protoIs "void f(void)" "void f()"
     "prototype: arrays, pointer to pointer, return pointer", fun () ->
         protoIs "int *h(int a[], char **argv, const char *const s)" "int * h(int * a, char * * argv, const char * s)"
-    "prototype: long long rejected", fun () -> protoFails "long long f(int x)" "64-bit"
     "prototype: varargs rejected", fun () -> protoFails "int printf(const char *fmt, ...)" "variadic"
     "prototype: struct rejected", fun () -> protoFails "int f(struct point p)" "struct"
     "prototype: function pointer rejected", fun () -> protoFails "int f(int (*cb)(int))" "function pointer"
@@ -1725,6 +1724,49 @@ average:
         match cCall avg [ "{1.5, 2.5, 4}"; "3" ] with
         | Ok(_, r) -> expectEq "average" r.ReturnText "2.6666666666666665" @ expectEq "problems" r.Problems []
         | Error e -> [ e ]
+    "int64: prototypes", fun () ->
+        protoIs "long long f(unsigned long long a, int64_t b, uint64_t *p, long long int c)"
+            "long long f(unsigned long long a, long long b, unsigned long long * p, long long c)"
+    "int64: register pairs and the stack", fun () ->
+        let locs ts = argLocations ts |> fun (l, n) -> List.map argLocText l, n
+        let i, ll, d = CIntT(CInt32 true), CIntT(CInt64 true), CFloat true
+        expectEq "int, ll" (locs [ i; ll ]) ([ "r0"; "r2, r3" ], 0)
+        @ expectEq "three ll" (locs [ ll; ll; ll ]) ([ "r0, r1"; "r2, r3"; "[sp, #0]" ], 8)
+        @ expectEq "ll after three ints" (locs [ i; i; i; ll ]) ([ "r0"; "r1"; "r2"; "[sp, #0]" ], 8)
+        @ expectEq "ll, int, ll" (locs [ ll; i; ll; i ]) ([ "r0, r1"; "r2"; "[sp, #0]"; "[sp, #8]" ], 12)
+        @ expectEq "double does not use core registers" (locs [ d; ll ]) ([ "d0"; "r0, r1" ], 0)
+    "int64: results in r0:r1, arguments and arrays", fun () ->
+        let mul = "@ C: long long mul64(int a, int b);\n.global mul64\nmul64:\nsmull r2, r3, r0, r1\nmov r0, r2\nmov r1, r3\nbx lr"
+        let add = "@ C: uint64_t add64(uint64_t a, uint64_t b);\n.global add64\nadd64:\nadds r0, r0, r2\nadc r1, r1, r3\nbx lr"
+        let sum = """@ C: long long sum64(const long long *a, int n);
+    .global sum64
+sum64:
+    mov r2, r0
+    mov r0, #0
+    mov r1, #0
+1:  ldrd r4, r5, [r2], #8
+    adds r0, r0, r4
+    adc r1, r1, r5
+    subs r3, r3, #1
+    bne 1b
+    bx lr"""
+        let sum = sum.Replace("    mov r2, r0\n", "    push {r4, r5}\n    mov r2, r0\n    mov r3, r1\n").Replace("    bx lr", "    pop {r4, r5}\n    bx lr")
+        let ident = "@ C: uint64_t id(uint64_t x);\n.global id\nid:\nbx lr"
+        match cCall mul [ "-3"; "1000000000" ], cCall add [ "0xFFFFFFFF"; "1" ], cCall sum [ "{3000000000, -1, 5}"; "3" ], cCall ident [ "0xFFFFFFFFFFFFFFFF" ] with
+        | Ok(s1, r1), Ok(_, r2), Ok(_, r3), Ok(_, r4) ->
+            expectEq "mul64" r1.ReturnText "-3000000000 (0xFFFFFFFF4D2FA200)"
+            @ expectEq "add64" r2.ReturnText "4294967296 (0x100000000)"
+            @ expectEq "sum64" r3.ReturnText "3000000004 (0xB2D05E04)"
+            @ expectEq "id" r4.ReturnText "18446744073709551615 (0xFFFFFFFFFFFFFFFF)"
+            @ expectEq "problems" (r1.Problems @ r2.Problems @ r3.Problems @ r4.Problems) []
+            @ expectEq "summary" (formatCall s1 r1 |> List.head) "mul64(a=-3, b=1000000000)"
+        | e1, e2, e3, e4 -> [ sprintf "%A %A %A %A" e1 e2 e3 e4 ]
+    "int64: range checks", fun () ->
+        let ident = "@ C: uint64_t id(uint64_t x);\n.global id\nid:\nbx lr"
+        let sid = "@ C: long long sid(long long x);\n.global sid\nsid:\nbx lr"
+        callFails ident [ "-1" ] "negative"
+        @ callFails sid [ "0x8000000000000000" ] "does not fit"
+        @ callFails sid [ "12x" ] "not a valid number"
     "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with

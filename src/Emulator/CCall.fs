@@ -26,6 +26,8 @@ type CInt =
     | CChar of signed : bool * plain : bool // plain: written as just "char" (unsigned on ARM)
     | CShort of signed : bool
     | CInt32 of signed : bool
+    /// long long, int64_t, uint64_t: an even/odd register pair, low word first
+    | CInt64 of signed : bool
     | CBool
 
 type CType =
@@ -52,6 +54,7 @@ let rec typeName t =
     | CIntT(CChar(false, false)) -> "unsigned char"
     | CIntT(CShort s) -> if s then "short" else "unsigned short"
     | CIntT(CInt32 s) -> if s then "int" else "unsigned int"
+    | CIntT(CInt64 s) -> if s then "long long" else "unsigned long long"
     | CIntT CBool -> "_Bool"
     | CPtr(p, c) -> (if c then "const " else "") + typeName p + " *"
     | CFloat d -> if d then "double" else "float"
@@ -62,6 +65,7 @@ let sizeOf t =
     | CIntT(CChar _) | CIntT CBool -> 1
     | CIntT(CShort _) -> 2
     | CIntT(CInt32 _) | CPtr _ -> 4
+    | CIntT(CInt64 _) -> 8
     | CFloat d -> if d then 8 else 4
     | CVoid -> 1 // void * buffers are bytes
 
@@ -75,11 +79,12 @@ let rangeOf t =
     | CIntT(CInt32 true) -> -2147483648L, 2147483647L
     | CIntT(CInt32 false) | CPtr _ -> 0L, 4294967295L
     | CIntT CBool -> 0L, 1L
+    | CIntT(CInt64 _) -> System.Int64.MinValue, System.Int64.MaxValue // checked separately: see eval64
     | CFloat _ -> 0L, 0L // floating point values are not range-checked as integers
 
 let isSigned t =
     match t with
-    | CIntT(CChar(s, _)) | CIntT(CShort s) | CIntT(CInt32 s) -> s
+    | CIntT(CChar(s, _)) | CIntT(CShort s) | CIntT(CInt32 s) | CIntT(CInt64 s) -> s
     | _ -> false
 
 /// Interpret the low (sizeOf t) bytes of a word as a value of type t
@@ -146,8 +151,9 @@ let private baseType (words : string list) : Result<CType, string> =
     | [ "float" ] -> Ok(CFloat false)
     | [ "double" ] -> Ok(CFloat true)
     | [ "long"; "double" ] -> Error "long double is not supported"
-    | ws when (ws |> List.filter ((=) "long")).Length = 2 || List.contains "int64_t" ws || List.contains "uint64_t" ws ->
-        Error "64-bit types (long long, int64_t) are not supported yet"
+    | [ "long"; "long" ] | [ "long"; "long"; "int" ] | [ "signed"; "long"; "long" ] | [ "signed"; "long"; "long"; "int" ]
+    | [ "int64_t" ] -> Ok(CIntT(CInt64 true))
+    | [ "unsigned"; "long"; "long" ] | [ "unsigned"; "long"; "long"; "int" ] | [ "uint64_t" ] -> Ok(CIntT(CInt64 false))
     | "struct" :: _ | "union" :: _ | "enum" :: _ -> Error "struct, union and enum types are not supported"
     | [] -> Error "missing type"
     | ws -> Error(sprintf "unknown type '%s'" (String.concat " " ws))
@@ -319,17 +325,20 @@ let fpscrPreserved = 0x03F70000u
 /// Where an argument goes under the hard-float AAPCS
 type ArgLoc =
     | LCore of int // r0-r3
+    | LCorePair of int // r0:r1 or r2:r3 (64-bit, low word in the even register)
     | LS of int // s0-s15
     | LD of int // d0-d7
     | LStack of int // byte offset from SP at the call
 
 let argLocText = function
     | LCore n -> sprintf "r%d" n
+    | LCorePair n -> sprintf "r%d, r%d" n (n + 1)
     | LS n -> sprintf "s%d" n
     | LD n -> sprintf "d%d" n
     | LStack off -> sprintf "[sp, #%d]" off
 
-/// Allocate arguments (AAPCS with the VFP variant): integers and pointers in r0-r3, float in the
+/// Allocate arguments (AAPCS with the VFP variant): integers and pointers in r0-r3 (64-bit ones in
+/// r0:r1 or r2:r3, skipping a register to start on an even one), float in the
 /// lowest free s0-s15 (back-filling a gap left by a double), double in the lowest free even pair
 /// d0-d7; when a kind runs out, its arguments go on the stack (8-byte aligned for double).
 /// Returns the locations and the number of stack bytes.
@@ -354,6 +363,14 @@ let argLocations (types : CType list) =
                 match (if vfpOnStack then None else List.tryFind (fun d -> not used.[2 * d] && not used.[2 * d + 1]) [ 0 .. 7 ]) with
                 | Some d -> used.[2 * d] <- true; used.[2 * d + 1] <- true; LD d
                 | None -> vfpOnStack <- true; stack 8
+            | CIntT(CInt64 _) ->
+                if ncrn % 2 = 1 then ncrn <- ncrn + 1
+                if ncrn <= 2 then
+                    ncrn <- ncrn + 2
+                    LCorePair(ncrn - 2)
+                else
+                    ncrn <- 4
+                    stack 8
             | _ when ncrn < 4 -> ncrn <- ncrn + 1; LCore(ncrn - 1)
             | _ -> stack 4)
     locs, nsaa
@@ -384,6 +401,30 @@ let private evalValue (syms : Map<string, uint32>) (t : CType) (txt : string) : 
         | Error(``Undefined symbol`` [ (s, _) ]) -> Error(sprintf "'%s' is not a number or a label in the program" s)
         | Error e -> Error(sprintf "%A" e)
     | _ -> Error(sprintf "'%s' is not a valid number" txt)
+
+/// a 64-bit integer typed by the user: decimal, 0x hex or 0b binary, optionally negative; as its bits
+let private eval64 (signed : bool) (txt : string) : Result<int64, string> =
+    let t = txt.Trim().Replace("_", "")
+    let neg, body = if t.StartsWith "-" then true, t.Substring(1).Trim() else false, t
+    let radix, digits =
+        let b = body.ToLower()
+        if b.StartsWith "0x" then 16, b.Substring 2 elif b.StartsWith "0b" then 2, b.Substring 2 else 10, b
+    let digitValue (c : char) =
+        match c with
+        | c when c >= '0' && c <= '9' -> int c - int '0'
+        | c when c >= 'a' && c <= 'f' -> int c - int 'a' + 10
+        | _ -> 99
+    if digits = "" || digits |> Seq.exists (fun c -> digitValue c >= radix) then
+        Error(sprintf "'%s' is not a valid number (64-bit values take decimal, 0x hex or 0b binary)" txt)
+    else
+        let m = digits |> Seq.fold (fun acc c -> acc * bigint radix + bigint (digitValue c)) 0I
+        let v = if neg then -m else m
+        let two63 = FpMath.pow2 63
+        let lo, hi = (if signed then -two63 else 0I), (if signed then two63 - 1I else two63 * 2I - 1I)
+        let name = if signed then "long long" else "unsigned long long"
+        if neg && not signed && m <> 0I then Error(sprintf "%s is negative but %s is unsigned" txt name)
+        elif v < lo || v > hi then Error(sprintf "%s does not fit in %s" txt name)
+        else Ok(int64 (if v >= two63 then v - two63 * 2I else v))
 
 /// a float or double typed by the user, as raw bits
 let private evalFloat isDouble (txt : string) : Result<int64, string> =
@@ -426,9 +467,14 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                 | CPtr _, Value _ | (CVoid | CIntT _ | CFloat _), (Elements _ | Str _ | OutBuffer _ | Address _) ->
                     Error(where "wrong kind of argument for this type")
                 | CFloat d, Value v -> evalFloat d v |> Result.mapError where
+                | CIntT(CInt64 s), Value v -> eval64 s v |> Result.mapError where
                 | (CVoid | CIntT _) as t, Value v -> evalValue syms t v |> Result.map (extendValue t) |> word |> Result.mapError where
                 | CPtr(elem, isConst), Elements es ->
-                    let one e = match elem with | CFloat d -> evalFloat d e | _ -> evalValue syms elem e
+                    let one e =
+                        match elem with
+                        | CFloat d -> evalFloat d e
+                        | CIntT(CInt64 s) -> eval64 s e
+                        | _ -> evalValue syms elem e
                     let rec evalAll acc es =
                         match es with
                         | [] -> Ok(List.rev acc)
@@ -463,9 +509,10 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                 for (p, loc), v in List.zip (List.zip proto.Params locs) values do
                     match loc, p.PType with
                     | LCore n, _ -> regs <- Map.add (register n) (lo v) regs
+                    | LCorePair n, _ -> regs <- regs |> Map.add (register n) (lo v) |> Map.add (register (n + 1)) (hi v)
                     | LS n, _ -> fpWords <- Map.add n (lo v) fpWords
                     | LD n, _ -> fpWords <- fpWords |> Map.add (2 * n) (lo v) |> Map.add (2 * n + 1) (hi v)
-                    | LStack off, CFloat true -> mem <- addBytesToMem (sp + uint32 off) mem (bytesOf (lo v) @ bytesOf (hi v))
+                    | LStack off, t when sizeOf t = 8 -> mem <- addBytesToMem (sp + uint32 off) mem (bytesOf (lo v) @ bytesOf (hi v))
                     | LStack off, _ -> mem <- addBytesToMem (sp + uint32 off) mem (bytesOf (lo v))
                 let fp = { emptyFp with W = fpWords }
                 let flags = { N = false; Z = false; C = false; V = false }
@@ -508,7 +555,7 @@ let readValue (mm : DataMemory) (t : CType) (a : uint32) =
     let n = sizeOf t
     let word a n = List.init n (fun i -> readByte mm (a + uint32 i) <<< (8 * i)) |> List.fold (|||) 0u
     match t with
-    | CFloat true -> int64 (word a 4) ||| (int64 (word (a + 4u) 4) <<< 32)
+    | CFloat true | CIntT(CInt64 _) -> int64 (word a 4) ||| (int64 (word (a + 4u) 4) <<< 32)
     | CFloat false -> int64 (word a 4)
     | _ -> decodeValue t (word a n)
 
@@ -531,6 +578,8 @@ let describeAddress (setup : CallSetup) (a : uint32) =
 let private formatValue t (v : int64) =
     match t with
     | CFloat d -> formatFloat d v
+    | CIntT(CInt64 true) -> sprintf "%d (0x%X)" v (uint64 v)
+    | CIntT(CInt64 false) -> sprintf "%d (0x%X)" (uint64 v) (uint64 v)
     | CIntT(CChar _) when v >= 32L && v < 127L -> sprintf "%d '%c'" v (char (int v))
     | CIntT CBool -> if v = 0L then "false" else "true"
     | _ when v < 0L -> sprintf "%d (0x%X)" v (uint32 (v &&& 0xFFFFFFFFL))
@@ -555,6 +604,7 @@ let decodeResult (setup : CallSetup) (ri : RunInfo) : CallResult =
         | CVoid -> None
         | CFloat false -> Some(int64 (fpWord 0)) // s0
         | CFloat true -> Some(int64 (fpWord 0) ||| (int64 (fpWord 1) <<< 32)) // d0
+        | CIntT(CInt64 _) -> Some(int64 r0 ||| (int64 dp.Regs.[R1] <<< 32)) // r0 = low, r1 = high
         | t -> Some(decodeValue t r0)
     let returnText =
         match ret, retVal with
@@ -615,6 +665,7 @@ let formatCall (setup : CallSetup) (res : CallResult) =
             match prm.PType with
             | CPtr _ -> sprintf "%s=%s" prm.PName (describeAddress setup (uint32 w))
             | CFloat d -> sprintf "%s=%s" prm.PName (formatFloat d w)
+            | CIntT(CInt64 s) -> sprintf "%s=%s" prm.PName (if s then string w else string (uint64 w))
             | t -> sprintf "%s=%d" prm.PName (decodeValue t (uint32 w)))
         |> String.concat ", "
     [ yield sprintf "%s(%s)" p.FName argText
@@ -626,7 +677,10 @@ let formatCall (setup : CallSetup) (res : CallResult) =
       for br in res.BufferResults do
           let show i v =
               (if List.contains i br.Changed then "*" else "")
-              + (match br.Buffer.BElem with | CFloat d -> formatFloat d v | _ -> string v)
+              + (match br.Buffer.BElem with
+                 | CFloat d -> formatFloat d v
+                 | CIntT(CInt64 false) -> string (uint64 v)
+                 | _ -> string v)
           yield sprintf "  %s[%d]: {%s}" br.Buffer.BParam br.Buffer.BCount (br.After |> List.mapi show |> String.concat ", ")
       for prob in res.Problems do
           yield sprintf "  warning: %s" prob ]

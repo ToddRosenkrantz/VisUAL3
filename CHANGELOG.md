@@ -6,6 +6,7 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 
 ### Added
 
+- C Call: `long long`, `int64_t` and `uint64_t` parameters, results and arrays, in even/odd register pairs (r0:r1, r2:r3) or 8-byte stack slots, as AAPCS requires.
 - C Call: named cases of arguments for each function, chosen in a new **Case** row. They are saved with the source, as `prog.ccall` beside `prog.s`, when the `.s` is saved, and loaded when it is opened.
 
 ## 3.0.0-dev.3 (2026-10-20)
