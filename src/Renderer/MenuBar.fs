@@ -11,6 +11,7 @@ open EEExtensions
 open Fable.Core
 open Fable.Core.JsInterop
 open Interop
+open Browser.Dom
 open Refs
 open Settings
 open Tabs
@@ -268,6 +269,29 @@ let testMenu() =
         ]
 
 
+/// GPL "Appropriate Legal Notices": copyright, no warranty, and how to see the licence
+let licenseNoticeHtml () =
+    sprintf "<h4>VisUAL3 v%s</h4>" Refs.appVersion +
+    "<p>Copyright &copy; 2026 Todd Rosenkrantz.<br>Based on VisUAL2, copyright &copy; 2018&ndash;2019 " +
+    "Dr T. Clarke, Imperial College London, and the VisUAL2 contributors.</p>" +
+    "<p>VisUAL3 is free software: you can redistribute it and/or modify it under the terms of " +
+    "the GNU General Public License version 3.</p>" +
+    "<p>It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even " +
+    "the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</p>"
+
+/// copy of a vex dialog button with a new caption
+[<Emit("Object.assign({}, $0, {text: $1})")>]
+let private relabel (button : obj) (text : string) : obj = jsNative
+
+/// Help > License: the notice, with a button that opens the full licence text
+let showLicense () =
+    vex?dialog?confirm (createObj [
+        "unsafeMessage" ==> licenseNoticeHtml ()
+        "buttons" ==> [| relabel vex?dialog?buttons?YES "View full licence"; relabel vex?dialog?buttons?NO "Close" |]
+        // LICENSE ships at the top of the app, beside the app folder
+        "callback" ==> fun (viewText : bool) -> if viewText then runLocalPage (path.join ("..", "LICENSE")) "" () ])
+    |> ignore
+
 let helpMenu() =
         makeMenu "Help" (
             [
@@ -282,6 +306,7 @@ let helpMenu() =
                 makeCondItem (debugLevel > 0) "Run dev tools FABLE checks" Core.Option.None (interlockAction "FABLE checks" Integration.runTestbench)
                 makeCondItem (debugLevel > 0) "Run Emulator Tests" Core.Option.None (interlockAction "run tests" Tests.runAllEmulatorTests)
                 menuSeparator
+                makeItem "License" Core.Option.None showLicense
                 makeItem "About" Core.option.None (fun () ->
                     printfn "Directory is:%s" (Stats.dirOfSettings())
                     showVexAlert (sprintf "<h4>VisUAL3 ARMv7 emulator v%s</h4>" Refs.appVersion +
