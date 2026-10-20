@@ -2,7 +2,7 @@
 // usage: node zip-dist.mjs [platform ...]   (default: every dist/VisUAL3-* folder)
 // Uses `zip -y` so the macOS bundle keeps its symbolic links and executables keep their permissions;
 // on a Windows build machine falls back to PowerShell Compress-Archive.
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
@@ -16,6 +16,14 @@ if (folders.length === 0) {
   process.exit(1);
 }
 for (const folder of folders) {
+  // the packager puts Electron's MIT licence at the top as LICENSE: keep it as LICENSE.electron.txt
+  // and put VisUAL3's own licence (GPL-3.0) and credits there instead
+  const top = `dist/${folder}`;
+  if (existsSync(`${top}/LICENSE`) && readFileSync(`${top}/LICENSE`, "utf8") !== readFileSync("LICENSE", "utf8")) {
+    renameSync(`${top}/LICENSE`, `${top}/LICENSE.electron.txt`);
+  }
+  copyFileSync("LICENSE", `${top}/LICENSE`);
+  copyFileSync("CREDITS.md", `${top}/CREDITS.md`);
   const zipName = `${folder}-${version}.zip`;
   rmSync(`dist/${zipName}`, { force: true });
   if (process.platform === "win32") {

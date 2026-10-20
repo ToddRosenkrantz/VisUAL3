@@ -23,6 +23,9 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 ### Fixed
 
 - The guide's "Not supported" list no longer names instructions that 3.0.2-dev added.
+- The guide keeps Operand 2 and address examples, and inline code, on one line, with more room for the text.
+- The zips' top-level `LICENSE` is VisUAL3's GPL-3.0 licence, with `CREDITS.md` beside it. It was Electron's MIT licence, which is now `LICENSE.electron.txt`.
+- The Help menu item is now **License (GNU GPL v3)**, and Help → About no longer says the core has no FPU.
 
 ## 3.0.2-dev (2026-10-20)
 

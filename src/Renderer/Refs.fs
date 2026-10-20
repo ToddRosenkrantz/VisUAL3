@@ -522,7 +522,7 @@ let runPage url () =
 let runLocalPage (file : string) (anchor : string) () =
     let window =
         createNew remote?BrowserWindow (createObj [
-            "width" ==> 900
+            "width" ==> 1000
             "height" ==> 800
             "icon" ==> appIcon ()
             "webPreferences" ==> createObj [ "nodeIntegration" ==> false; "contextIsolation" ==> true ]

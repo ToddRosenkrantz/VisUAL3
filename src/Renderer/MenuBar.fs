@@ -306,11 +306,11 @@ let helpMenu() =
                 makeCondItem (debugLevel > 0) "Run dev tools FABLE checks" Core.Option.None (interlockAction "FABLE checks" Integration.runTestbench)
                 makeCondItem (debugLevel > 0) "Run Emulator Tests" Core.Option.None (interlockAction "run tests" Tests.runAllEmulatorTests)
                 menuSeparator
-                makeItem "License" Core.Option.None showLicense
+                makeItem "License (GNU GPL v3)" Core.Option.None showLicense
                 makeItem "About" Core.option.None (fun () ->
                     printfn "Directory is:%s" (Stats.dirOfSettings())
                     showVexAlert (sprintf "<h4>VisUAL3 ARMv7 emulator v%s</h4>" Refs.appVersion +
-                                "GNU as syntax, no FPU, C function calls (AAPCS).<br><br>" +
+                                "GNU as syntax, VFPv4 floating point, C function calls (AAPCS).<br><br>" +
                                 "Copyright (c) 2026 Todd Rosenkrantz. Based on VisUAL2, copyright (c) 2018-2019 " +
                                 "Dr T. Clarke, Imperial College London, and the 2018 HLP students who wrote and tested it, " +
                                 "including Angelos Filos, Lorenzo Silvestri, Thomas Carotti, Douglas Brion and Christopher Macca. " +

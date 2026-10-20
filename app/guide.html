@@ -20,22 +20,23 @@
   header { background: var(--brand); color: #fff; padding: 18px 28px; }
   header h1 { margin: 0; font-size: 22px; font-weight: 600; }
   header p { margin: 4px 0 0; opacity: .9; }
-  .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; padding: 0 28px; }
+  .layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 20px; padding: 0 20px; }
   nav { position: sticky; top: 0; align-self: start; padding: 22px 0; font-size: 14px; }
   nav a { display: block; color: var(--muted); text-decoration: none; padding: 3px 0 3px 10px; border-left: 2px solid transparent; }
   nav a:hover, nav a:focus-visible { color: var(--ink); border-left-color: var(--brand); outline: none; }
-  main { max-width: 72ch; padding: 10px 0 60px; }
+  main { max-width: 88ch; padding: 10px 0 60px; }
   h2 { font-size: 20px; margin: 34px 0 8px; padding-top: 10px; border-top: 1px solid var(--rule); }
   h3 { font-size: 16px; margin: 22px 0 6px; }
   p, li { margin: 6px 0; }
   code, pre, td.mono { font-family: "Fira Code", Consolas, monospace; font-size: 13px; }
-  p code, li code, td code { background: #eef3f4; padding: 1px 4px; border-radius: 3px; }
+  p code, li code, td code { background: #eef3f4; padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
   pre { background: var(--code-bg); color: var(--code-fg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }
   pre .k { color: var(--c-kw); } pre .r { color: var(--c-reg); } pre .n { color: var(--c-num); }
   pre .c { color: var(--c-com); } pre .l { color: var(--c-lab); } pre .d { color: var(--c-dir); }
   table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 14px; }
   th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--rule); }
   th { color: var(--muted); font-weight: 600; }
+  td.ex { white-space: nowrap; }  /* examples stay on one line */
   .note { border-left: 3px solid var(--brand); padding: 4px 12px; color: var(--muted); }
   a { color: #1a6d70; }
   @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } nav { position: static; padding-bottom: 0; } }
@@ -138,24 +139,24 @@
 <p>The last operand of the arithmetic, move and compare instructions can be:</p>
 <table>
   <tr><th>Form</th><th>Example</th><th>Notes</th></tr>
-  <tr><td>Immediate</td><td class="mono">#255, #0xff00</td><td>An 8-bit value rotated right by an even amount. Where possible the assembler uses the inverted or negated form instead (<code>mov r0, #-1</code> becomes <code>mvn r0, #0</code>).</td></tr>
-  <tr><td>Register</td><td class="mono">r2</td><td></td></tr>
-  <tr><td>Shift by a constant</td><td class="mono">r2, lsl #3</td><td><code>lsl</code> #0–31, <code>lsr</code> and <code>asr</code> #0–32, <code>ror</code> #0–31. <code>asl</code> means <code>lsl</code>.</td></tr>
-  <tr><td>Shift by a register</td><td class="mono">r2, lsr r3</td><td>Uses the bottom byte of the shift register.</td></tr>
-  <tr><td>Rotate through carry</td><td class="mono">r2, rrx</td><td>One bit right; C enters bit 31.</td></tr>
+  <tr><td class="ex">Immediate</td><td class="mono ex">#255, #0xff00</td><td>An 8-bit value rotated right by an even amount. Where possible the assembler uses the inverted or negated form instead (<code>mov r0, #-1</code> becomes <code>mvn r0, #0</code>).</td></tr>
+  <tr><td class="ex">Register</td><td class="mono ex">r2</td><td></td></tr>
+  <tr><td class="ex">Shift by a constant</td><td class="mono ex">r2, lsl #3</td><td><code>lsl</code> #0–31, <code>lsr</code> and <code>asr</code> #0–32, <code>ror</code> #0–31. <code>asl</code> means <code>lsl</code>.</td></tr>
+  <tr><td class="ex">Shift by a register</td><td class="mono ex">r2, lsr r3</td><td>Uses the bottom byte of the shift register.</td></tr>
+  <tr><td class="ex">Rotate through carry</td><td class="mono ex">r2, rrx</td><td>One bit right; C enters bit 31.</td></tr>
 </table>
 
 <h2 id="addressing">Loads and stores</h2>
 <table>
   <tr><th>Address</th><th>Meaning</th></tr>
-  <tr><td class="mono">[r1]</td><td>The address in r1.</td></tr>
-  <tr><td class="mono">[r1, #8]</td><td>r1 + 8. r1 is unchanged.</td></tr>
-  <tr><td class="mono">[r1, #8]!</td><td>r1 + 8, then r1 is set to that address.</td></tr>
-  <tr><td class="mono">[r1], #8</td><td>r1, then r1 is increased by 8.</td></tr>
-  <tr><td class="mono">[r1, r2]</td><td>r1 + r2.</td></tr>
-  <tr><td class="mono">[r1, -r2]</td><td>r1 − r2. A register offset can be subtracted; <code>+r2</code> is also accepted.</td></tr>
-  <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array. The shift can be <code>lsl #0–31</code>, <code>lsr #1–32</code>, <code>asr #1–32</code>, <code>ror #1–31</code> or <code>rrx</code>.</td></tr>
-  <tr><td class="mono">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
+  <tr><td class="mono ex">[r1]</td><td>The address in r1.</td></tr>
+  <tr><td class="mono ex">[r1, #8]</td><td>r1 + 8. r1 is unchanged.</td></tr>
+  <tr><td class="mono ex">[r1, #8]!</td><td>r1 + 8, then r1 is set to that address.</td></tr>
+  <tr><td class="mono ex">[r1], #8</td><td>r1, then r1 is increased by 8.</td></tr>
+  <tr><td class="mono ex">[r1, r2]</td><td>r1 + r2.</td></tr>
+  <tr><td class="mono ex">[r1, -r2]</td><td>r1 − r2. A register offset can be subtracted; <code>+r2</code> is also accepted.</td></tr>
+  <tr><td class="mono ex">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array. The shift can be <code>lsl #0–31</code>, <code>lsr #1–32</code>, <code>asr #1–32</code>, <code>ror #1–31</code> or <code>rrx</code>.</td></tr>
+  <tr><td class="mono ex">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
 </table>
 <p>An immediate offset can be any value from −4095 to 4095. As on ARMv7 Linux, <code>ldr</code>, <code>str</code>, <code>ldrh</code>, <code>ldrsh</code> and <code>strh</code> work at any address: an unaligned access reads or writes the bytes in little-endian order and takes one extra cycle. With <b>Strict alignment</b> turned on in <b>Edit → Preferences</b>, an unaligned word or halfword access stops the run instead, as on a core that traps alignment faults. <code>ldm</code>, <code>stm</code>, <code>push</code> and <code>pop</code> always need a word-aligned address.</p>
 <h3>Bytes and halfwords</h3>
