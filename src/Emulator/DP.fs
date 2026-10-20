@@ -611,6 +611,80 @@ let makeExtendInstr (signed : bool) (bits : int) symTable (operands : string lis
                 Ok(writeBack res rd (toUFlags d.Fl) false d)
             destStall rd, (exec, noShift rm)))
 
+/// value of a #constant operand
+let private parseConst symTable (what : string) (txt : string) =
+    match txt.Trim() with
+    | t when t.StartsWith("#") -> parseNumberExpression symTable (t.Substring(1))
+    | t -> makeFormatError (sprintf "%s must be a constant with a # prefix" what) t ""
+
+/// lsb and width of a bit field: lsb 0-31, width 1-(32 - lsb)
+let private parseField symTable (root : string) (lsbTxt : string) (widthTxt : string) =
+    parseConst symTable "the field's lowest bit" lsbTxt
+    |> Result.bind (fun lsb ->
+        parseConst symTable "the field width" widthTxt
+        |> Result.bind (fun width ->
+            if lsb > 31u then makeFormatError (sprintf "%s: the lowest bit must be #0 to #31" root) lsbTxt ""
+            elif width < 1u || width > 32u - lsb then
+                makeFormatError (sprintf "%s: the width must be #1 to #%d when the lowest bit is #%d" root (32u - lsb) lsb) widthTxt ""
+            else Ok(int lsb, int width)))
+
+/// mask of the low n bits (n = 1..32)
+let private lowMask (n : int) = if n = 32 then 0xFFFFFFFFu else trimUint32 ((1u <<< n) - 1u)
+
+/// UBFX/SBFX Rd, Rn, #lsb, #width: extract a bit field, zero- or sign-extended
+/// BFI Rd, Rn, #lsb, #width: insert the low bits of Rn into a field of Rd
+/// BFC Rd, #lsb, #width: clear a field of Rd
+let makeBitFieldInstr (root : string) symTable (operands : string list) updateFlags =
+    if updateFlags then noS root else
+    let operands = match root, operands with | "BFC", [ rd; l; w ] -> [ rd; rd; l; w ] | _ -> operands
+    match operands with
+    | [ rd; rn; lsbTxt; widthTxt ] ->
+        parseRegs (root + " operands") [ rd; rn ]
+        |> Result.bind (fun rl ->
+            parseField symTable root lsbTxt widthTxt
+            |> Result.map (fun (lsb, width) ->
+                let rd', rn' = rl.[0], rl.[1]
+                let mask = lowMask width
+                let exec (d : DataPath) =
+                    let n = d.Regs.[rn']
+                    let res =
+                        match root with
+                        | "UBFX" -> (n >>> lsb) &&& mask
+                        | "SBFX" -> uint32 ((int32 (n <<< (32 - lsb - width))) >>> (32 - width))
+                        | "BFI" -> (d.Regs.[rd'] &&& ~~~(mask <<< lsb)) ||| ((n &&& mask) <<< lsb)
+                        | _ -> d.Regs.[rd'] &&& ~~~(mask <<< lsb) // BFC
+                    Ok(writeBack (trimUint32 res) rd' (toUFlags d.Fl) false d)
+                destStall rd', (exec, noShift rn')))
+    | _ when root = "BFC" -> makeDPE "destination, #lowest bit, #width" (String.concat "," operands)
+    | _ -> makeDPE "destination, register, #lowest bit, #width" (String.concat "," operands)
+
+/// count of zero bits above the highest 1 bit (32 for 0)
+let clz32 (v : uint32) =
+    let rec go n (x : uint32) = if n = 32 || x &&& 0x80000000u <> 0u then n else go (n + 1) (x <<< 1)
+    uint32 (go 0 v)
+
+/// the 32 bits in reverse order
+let rbit32 (v : uint32) =
+    let rec go i acc = if i = 32 then acc else go (i + 1) (acc ||| (((v >>> i) &&& 1u) <<< (31 - i)))
+    trimUint32 (go 0 0u)
+
+/// CLZ, RBIT, REV, REV16, REVSH Rd, Rm
+let makeBitOpInstr (root : string) (f : uint32 -> uint32) symTable (operands : string list) updateFlags =
+    if updateFlags then noS root else
+    match operands with
+    | [ _; _ ] ->
+        parseRegs (root + " operands") operands
+        |> Result.map (fun rl ->
+            let rd, rm = rl.[0], rl.[1]
+            let exec (d : DataPath) = Ok(writeBack (trimUint32 (f d.Regs.[rm])) rd (toUFlags d.Fl) false d)
+            destStall rd, (exec, noShift rm))
+    | _ -> makeDPE "destination, register" (String.concat "," operands)
+
+let private byteOf (v : uint32) i = (v >>> (8 * i)) &&& 0xFFu
+let rev32 (v : uint32) = (byteOf v 0 <<< 24) ||| (byteOf v 1 <<< 16) ||| (byteOf v 2 <<< 8) ||| byteOf v 3
+let rev16 (v : uint32) = (byteOf v 2 <<< 24) ||| (byteOf v 3 <<< 16) ||| (byteOf v 0 <<< 8) ||| byteOf v 1
+let revsh (v : uint32) = uint32 (int32 (int16 ((byteOf v 0 <<< 8) ||| byteOf v 1)))
+
 /// SDIV/UDIV Rd, Rn, Rm (Cortex-A7 integer divide): Rd := Rn / Rm, rounded toward zero.
 /// As on ARMv7-A: dividing by zero gives 0, and SDIV of 0x80000000 by -1 gives 0x80000000.
 let makeDivInstr (signed : bool) symTable (operands : string list) updateFlags =
@@ -691,6 +765,16 @@ let spec = [
 
     "SDIV", fun s a b -> makeDivInstr true s a b
     "UDIV", fun s a b -> makeDivInstr false s a b
+
+    "UBFX", fun s a b -> makeBitFieldInstr "UBFX" s a b
+    "SBFX", fun s a b -> makeBitFieldInstr "SBFX" s a b
+    "BFI", fun s a b -> makeBitFieldInstr "BFI" s a b
+    "BFC", fun s a b -> makeBitFieldInstr "BFC" s a b
+    "CLZ", fun s a b -> makeBitOpInstr "CLZ" clz32 s a b
+    "RBIT", fun s a b -> makeBitOpInstr "RBIT" rbit32 s a b
+    "REV", fun s a b -> makeBitOpInstr "REV" rev32 s a b
+    "REV16", fun s a b -> makeBitOpInstr "REV16" rev16 s a b
+    "REVSH", fun s a b -> makeBitOpInstr "REVSH" revsh s a b
 
     "NEG", fun s a b -> makeNegInstr s a b
     "NOP", fun s a b -> makeNopInstr s a b

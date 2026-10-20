@@ -7,6 +7,8 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 ### Added
 
 - `ldrd` and `strd`: two words into or from an even/odd register pair (r0/r1 … r10/r11), with the second register optional. They take the same addresses as `ldrh` and always need a word-aligned address.
+- Bit-field instructions `ubfx`, `sbfx`, `bfi` and `bfc`.
+- `clz` (count leading zeros), `rbit` (reverse bits), and `rev`, `rev16` and `revsh` (reverse bytes).
 
 ### Fixed
 

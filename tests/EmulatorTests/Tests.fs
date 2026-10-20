@@ -1024,7 +1024,50 @@ let doubleTests = [
     "STRD to an unaligned address stops the run", "ldr r2, =d + 1\nstrd r0, r1, [r2]\n.data\nd: .word 1, 2, 3", [ Expect.RunError ]
 ]
 
-let allTests = doubleTests @ a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
+/// bit-field instructions, CLZ, RBIT and the REV family
+let bitTests = [
+    "UBFX, SBFX, BFI, BFC",
+    """    ldr r1, =0x12345678
+           ubfx r0, r1, #8, #8
+           sbfx r2, r1, #4, #4
+           sbfx r3, r1, #12, #4
+           mov r4, r1
+           mov r5, #0xA
+           bfi r4, r5, #12, #4
+           mov r6, r4
+           bfc r6, #0, #8""",
+    [ Reg (R0, 0x56u); Reg (R2, 7u); Reg (R3, 5u); Reg (R4, 0x1234A678u); Reg (R6, 0x1234A600u) ]
+    "SBFX sign-extends a negative field", "ldr r1, =0x0000F000\nsbfx r0, r1, #12, #4\nsbfx r2, r1, #13, #3", [ Reg (R0, 0xFFFFFFFFu); Reg (R2, 0xFFFFFFFFu) ]
+    "full-width and top fields",
+    """    ldr r1, =0x80000001
+           ubfx r0, r1, #0, #32
+           ubfx r2, r1, #31, #1
+           sbfx r3, r1, #31, #1
+           mvn r4, #0
+           bfc r4, #0, #32
+           mvn r5, #0
+           bfi r5, r1, #16, #16""",
+    [ Reg (R0, 0x80000001u); Reg (R2, 1u); Reg (R3, 0xFFFFFFFFu); Reg (R4, 0u); Reg (R5, 0x0001FFFFu) ]
+    "bit field past bit 31 rejected", "ubfx r0, r1, #28, #5", [ ParseError ]
+    "bit field width 0 rejected", "bfi r0, r1, #4, #0", [ ParseError ]
+    "bit field lsb 32 rejected", "bfc r0, #32, #1", [ ParseError ]
+    "bit field needs # constants", "ubfx r0, r1, r2, #4", [ ParseError ]
+    "UBFXS rejected", "ubfxs r0, r1, #0, #4", [ ParseError ]
+    "CLZ",
+    "mov r1, #0x100\nclz r0, r1\nmov r2, #0\nclz r3, r2\nmvn r4, #0\nclz r5, r4\nmov r6, #1\nclz r7, r6",
+    [ Reg (R0, 23u); Reg (R3, 32u); Reg (R5, 0u); Reg (R7, 31u) ]
+    "RBIT, and RBIT + CLZ counts trailing zeros",
+    "ldr r1, =0x00000001\nrbit r0, r1\nldr r2, =0x12345678\nrbit r3, r2\nmov r4, #0x50\nrbit r5, r4\nclz r5, r5",
+    [ Reg (R0, 0x80000000u); Reg (R3, 0x1E6A2C48u); Reg (R5, 4u) ]
+    "REV, REV16, REVSH",
+    "ldr r1, =0x11223344\nrev r0, r1\nrev16 r2, r1\nrevsh r3, r1\nldr r4, =0x000080FF\nrevsh r5, r4",
+    [ Reg (R0, 0x44332211u); Reg (R2, 0x22114433u); Reg (R3, 0x4433u); Reg (R5, 0xFFFFFF80u) ]
+    "conditional REV and CLZ flags unchanged", "mov r1, #1\ncmp r1, #1\nrevne r0, r1\nclzeq r2, r1", [ Reg (R0, 0u); Reg (R2, 31u); Flags (false, true, true, false) ]
+    "CLZ with PC rejected", "clz r0, pc", [ ParseError ]
+    "REVS rejected", "revs r0, r1", [ ParseError ]
+]
+
+let allTests = bitTests @ doubleTests @ a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 

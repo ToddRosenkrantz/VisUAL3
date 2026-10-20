@@ -114,6 +114,8 @@
   <tr><td>Divide</td><td class="mono">sdiv udiv</td><td class="mono">sdiv r0, r1, r2</td></tr>
   <tr><td>Long multiply (64-bit result)</td><td class="mono">umull smull umlal smlal</td><td class="mono">umull r0, r1, r2, r3</td></tr>
   <tr><td>Extend byte or halfword</td><td class="mono">uxtb uxth sxtb sxth</td><td class="mono">sxtb r0, r1</td></tr>
+  <tr><td>Bit fields</td><td class="mono">ubfx sbfx bfi bfc</td><td class="mono">ubfx r0, r1, #8, #8</td></tr>
+  <tr><td>Count, reverse bits and bytes</td><td class="mono">clz rbit rev rev16 revsh</td><td class="mono">rev r0, r1</td></tr>
   <tr><td>Do nothing</td><td class="mono">nop</td><td class="mono">nop</td></tr>
   <tr><td>Load and store</td><td class="mono">ldr str ldrb strb ldrh strh ldrsb ldrsh ldrd strd</td><td class="mono">ldr r0, [r1, #4]</td></tr>
   <tr><td>Several registers</td><td class="mono">ldm stm push pop</td><td class="mono">push {r4, lr}</td></tr>
@@ -121,7 +123,8 @@
   <tr><td>Address of a label</td><td class="mono">adr, ldr Rd, =label</td><td class="mono">ldr r0, =table</td></tr>
 </table>
 <ul>
-  <li>Add <code>s</code> to set the flags: <code>adds</code>, <code>movs</code>. Compares always set them. <code>muls</code> and <code>mlas</code> set N and Z only; <code>umulls</code> and the other long multiplies set N and Z from the 64-bit result. <code>movw</code>, <code>movt</code>, <code>mls</code>, <code>sdiv</code>, <code>udiv</code>, the extends and <code>nop</code> have no <code>s</code> form.</li>
+  <li>Add <code>s</code> to set the flags: <code>adds</code>, <code>movs</code>. Compares always set them. <code>muls</code> and <code>mlas</code> set N and Z only; <code>umulls</code> and the other long multiplies set N and Z from the 64-bit result. <code>movw</code>, <code>movt</code>, <code>mls</code>, <code>sdiv</code>, <code>udiv</code>, the extends, the bit-field instructions, <code>clz</code>, <code>rbit</code>, the <code>rev</code> family and <code>nop</code> have no <code>s</code> form.</li>
+  <li>A bit field is <code>#width</code> bits starting at bit <code>#lsb</code>, with <code>lsb</code> + <code>width</code> at most 32: <code>ubfx r0, r1, #8, #8</code> takes bits 8–15 of r1. <code>bfi</code> and <code>bfc</code> change only the field and leave the other bits of Rd alone.</li>
   <li><code>sdiv</code> and <code>udiv</code> round toward zero, as C does. As on the Cortex-A7, dividing by zero gives 0 rather than an error, so test for a zero divisor first if it matters.</li>
   <li>Any 32-bit constant can be built with <code>movw</code> then <code>movt</code>: <code>movw r0, #:lower16:table</code> and <code>movt r0, #:upper16:table</code> load an address, as gcc does. Like GNU <code>as</code>, <code>mov r0, #0x1234</code> becomes <code>movw</code> when the value fits in 16 bits but is not an ARM immediate.</li>
   <li>The long multiplies write the low word to the first register and the high word to the second: <code>umull lo, hi, r2, r3</code>. The extends can rotate first: <code>uxtb r0, r1, ror #8</code> takes byte 1.</li>
@@ -244,7 +247,7 @@
   <li>Floating point (VFP/NEON instructions, <code>float</code> and <code>double</code>): the emulated core has no FPU.</li>
   <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
-  <li>Bit-field and bit-order instructions (<code>ubfx</code>, <code>sbfx</code>, <code>bfi</code>, <code>bfc</code>, <code>clz</code>, <code>rev</code>, <code>rbit</code>), and exclusive loads and stores (<code>ldrex</code>, <code>strex</code>).</li>
+  <li>Exclusive loads and stores (<code>ldrex</code>, <code>strex</code>), status register access (<code>mrs</code>, <code>msr</code>), and saturating and SIMD instructions.</li>
   <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
   <li>In C calls: 64-bit types (<code>long long</code>), structs, variadic functions and function pointers.</li>
 </ul>
