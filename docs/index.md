@@ -1,20 +1,19 @@
-﻿# VisUAL2 - A User-friendly Educational Assembler and Simulator for ARM UAL.
+﻿# VisUAL2: ARMv7 assembly emulator
 
- VisUAL2 is a cross-platform tool that makes it very easy for beginners to write small and medium-sized ARM assembler programs, with no manual and intuitive visual debugging. Even those very familiar with ARM assembler have found VisUAL2 useful for quick writing and debugging. The IDE has helpful error messages and an ergononic GUI that makes debugging visually intuitive.
- 
- VisUAL2 is a re-engineered and improved version of the original [VisUAL](https://salmanarif.bitbucket.io/visual/) created in 2014. Both VisUAL2 and VisUAL are written by Imperial College students.
+VisUAL2 is a desktop emulator for learning ARM assembly. You write ARMv7 (A32) code in GNU assembler syntax, the syntax gcc, clang and Linux use, then run or step through it and watch registers, flags, memory and the stack change. Errors are explained where they occur, with help for each instruction.
 
+Its **C Call** panel calls your assembly functions the way compiled C would. You write the C prototype in a comment, enter the arguments, and the panel passes them as the ARM calling convention (AAPCS) requires. It then shows the return value, any arrays before and after the call, and calling-convention mistakes such as not preserving r4–r11.
 
-## Getting Started as a Developer
+This version is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) from Imperial College London, which reimplemented Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). The fork replaces VisUAL2's own assembler syntax with GNU syntax and moves it to current tools.
 
-See the [README](https://github.com/ImperialCollegeLondon/Visual2/blob/master/README.md) For the repo containing all source code and developer's documentation. Visual2 development is currently restricted to Imperial College students and will be run as an open-source project shortly.
+## Using it
 
+Download the zip for Windows, Linux or macOS, unzip it and run the program inside. The [README](../README.md) explains how, and how to get past the warnings for unsigned apps.
 
-## Getting Started as a User
+The [assembly language guide](guide.md) covers the syntax, instructions and directives, and calling functions from C. It is also built into the app: **Help → Assembly language guide** (F1).
 
-See the [UAL Guide](#guide) for a top-down guide to ARM assembly language supported by VisUAL2
+The emulated core has no floating-point unit and runs ARM (A32) code only. There are no system calls: a program ends by returning with `bx lr` or by running off the end of its code.
 
+## Building it
 
-VisUAL2 can be downloaded as portable Windows, OS-X and linux binaries, or can be recompiled from source.
-
-VisuAL is designed to be self-documenting: no manual needed. Try it and see!
+The [README](../README.md) describes building from source (.NET 8 SDK and Node.js), running the tests and packaging for each platform.
