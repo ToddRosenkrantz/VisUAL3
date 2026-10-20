@@ -62,6 +62,7 @@ let interlockAction (actionName : string) (action : Unit -> Unit) = (fun () ->
 let loadFileIntoTab tId (fileData : string) =
     if currentFileTabId = tId then
         Integration.resetEmulator()
+    CallCases.forget tId
     let editor = editors.[tId]
     editor?setValue (fileData) |> ignore
     setTabSaved tId
@@ -76,6 +77,7 @@ let openListOfFiles (fLst : string list) =
         try
             loadFileIntoTab tId (fs.readTextSync path)
             Files.setTabFilePath tId path
+            CallCases.load tId path
         with e -> showVexAlert (sprintf "Could not read %s: %s" path e.Message)
         [ tId ]
     if debugLevel > 0 then printfn "File list to open is: %A" fLst

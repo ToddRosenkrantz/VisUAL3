@@ -47,7 +47,7 @@ table:  .word   10, 20, 30, -5
 
 ### Calling functions from C
 
-Put a C prototype in a comment starting with `@ C:` and open the **C Call** tab. Enter arguments; arrays and strings are built in memory for you. Then press **Call** to run, or **Step into** to step through. The panel shows the return value, arrays before and after the call, and calling-convention (AAPCS) problems. `float` and `double` use the hard-float convention, as on armv7hf Linux: they are passed in s0–s15/d0–d7 and returned in s0/d0. It flags r4–r11, s16–s31 or SP not preserved, results not extended to 32 bits, and writes through `const` pointers.
+Put a C prototype in a comment starting with `@ C:` and open the **C Call** tab. Enter arguments; arrays and strings are built in memory for you. Then press **Call** to run, or **Step into** to step through. The panel shows the return value, arrays before and after the call, and calling-convention (AAPCS) problems. `float` and `double` use the hard-float convention, as on armv7hf Linux: they are passed in s0–s15/d0–d7 and returned in s0/d0. It flags r4–r11, s16–s31 or SP not preserved, results not extended to 32 bits, and writes through `const` pointers. Arguments can be kept as named cases per function; they are saved with the source, as `prog.ccall` beside `prog.s`, and loaded when it is opened.
 
 ### Testbenches
 

@@ -149,6 +149,7 @@ let deleteFileTab id =
     match confirmDelete with
     | false -> ()
     | true ->
+        CallCases.forget id
         Refs.fileTabList <- List.filter (fun x -> x <> id) Refs.fileTabList
         match Refs.currentFileTabId with
         | x when x = id ->

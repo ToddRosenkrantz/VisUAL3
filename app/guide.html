@@ -256,6 +256,9 @@
   <li><b>Call</b> runs the function until it returns. <b>Step into</b> stops at its first instruction; continue with Step or Run.</li>
   <li>The result shows the return value, any arrays before and after the call, and calling-convention problems.</li>
 </ol>
+<h3>Saving arguments as cases</h3>
+<p>Each function can keep several named sets of arguments, called cases. The <b>Case</b> row under <b>Function</b> picks one. Type a name and press <b>Save as</b> to keep the current arguments as a new case. Like Save As in an editor, the new case is then the one you edit. <b>Delete</b> removes the case shown.</p>
+<p>Cases are saved with the source: saving <code>prog.s</code> also writes <code>prog.ccall</code> beside it, and opening <code>prog.s</code> loads <code>prog.ccall</code> if it is there. Changing an argument marks the file unsaved. A <code>.ccall</code> file is short, readable JSON, so it can be edited by hand or handed out with the <code>.s</code>.</p>
 <h3>How arguments are passed</h3>
 <ul>
   <li>Integer and pointer arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>

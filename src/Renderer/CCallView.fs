@@ -17,19 +17,7 @@ open Browser.Types
 open Browser.Dom
 open Refs
 open CCall
-
-/// How a pointer argument is given
-type PtrKind =
-    | PArray // {1, 2, 3}
-    | PString // "text"
-    | POut // n zeroed elements
-    | PAddr // label, address or NULL
-
-type ParamInput = { Kind : PtrKind; Text : string }
-
-/// user input remembered per (function, parameter) while the panel is re-rendered
-let mutable private inputs : Map<string * string, ParamInput> = Map.empty
-let mutable private selected : string option = None
+open CallCases
 /// call currently running in the emulator
 let mutable private activeCall : CallSetup option = None
 let mutable private lastResult : (CallSetup * CallResult) option = None
@@ -72,9 +60,21 @@ let private defaultInput (p : CParam) =
     | _ -> { Kind = PArray; Text = "" }
 
 let private inputOf (f : Prototype) (p : CParam) =
-    Map.tryFind (f.FName, p.PName) inputs |> Option.defaultValue (defaultInput p)
+    (currentCase (funcCases currentFileTabId f.FName)).Args |> Map.tryFind p.PName |> Option.defaultValue (defaultInput p)
 
-let private setInput (f : Prototype) (p : CParam) v = inputs <- Map.add (f.FName, p.PName) v inputs
+/// change an argument of the current case; the source tab becomes unsaved (cases are saved with it)
+let private setInput (f : Prototype) (p : CParam) v =
+    let fcs = funcCases currentFileTabId f.FName
+    let cur = currentCase fcs
+    if Map.tryFind p.PName cur.Args <> Some v then
+        let cur' = { cur with Args = Map.add p.PName v cur.Args }
+        let cases = fcs.Cases |> List.map (fun c -> if c.Name = cur.Name then cur' else c)
+        setFuncCases currentFileTabId f.FName { Cases = cases; Current = cur.Name }
+        Tabs.setTabUnsaved currentFileTabId
+
+/// the function shown in the panel for the current file
+let private selected () = (CallCases.get currentFileTabId).Selected
+let private select name = CallCases.set currentFileTabId { CallCases.get currentFileTabId with Selected = Some name }
 
 let private valueHint t =
     match t with
@@ -255,6 +255,52 @@ and private helpView () =
         txt "p" "" "Types: char, signed/unsigned char, short, int, long, unsigned, int8_t..uint32_t, size_t, _Bool, float, double, pointers to these or void (const allowed), and arrays as pointers. Returns: void, the integer types, _Bool, float, double and pointers."
         txt "p" "" "Arguments are passed as the hard-float AAPCS (armv7hf) requires: integers and pointers in r0-r3, float in s0-s15 and double in d0-d7, the rest on the stack. Results come back in r0, s0 or d0. Pointer arguments are built in memory at 0x10000000." ]
 
+/// Case row: pick a saved set of arguments, save the current ones under a new name, or delete one
+and private caseChooser (proto : Prototype) =
+    let tab = currentFileTabId
+    let fcs = funcCases tab proto.FName
+    let cur = currentCase fcs
+    let changed (f : FuncCases) =
+        setFuncCases tab proto.FName f
+        Tabs.setTabUnsaved tab
+        render ()
+    let sel = document.createElement_select()
+    sel.className <- "ccall-case-select"
+    for c in fcs.Cases do
+        let o = document.createElement_option()
+        o.value <- c.Name
+        o.text <- c.Name
+        sel.appendChild o |> ignore
+    sel.value <- cur.Name
+    // handlers read the cases afresh: arguments typed since this row was drawn are in the store
+    let now () = funcCases tab proto.FName
+    sel.onchange <- fun _ ->
+        setFuncCases tab proto.FName { now () with Current = sel.value }
+        render ()
+    let name = document.createElement_input()
+    name.className <- "ccall-case-name"
+    name.placeholder <- "new case name"
+    let saveAs = txt "button" "btn btn-default ccall-case-btn" "Save as"
+    saveAs.title <- "Save the arguments below as a new case with this name"
+    let addCase () =
+        let n = name.value.Trim()
+        let fcs = now ()
+        if n = "" then name.focus ()
+        elif fcs.Cases |> List.exists (fun c -> c.Name = n) then showErrors [ sprintf "There is already a case named '%s'" n ]
+        else
+            lastErrors <- []
+            changed { Cases = fcs.Cases @ [ { Name = n; Args = (currentCase fcs).Args } ]; Current = n }
+    saveAs.addEventListener ("click", fun _ -> addCase ())
+    name.addEventListener ("keydown", fun (e : Event) -> if (e :?> KeyboardEvent).key = "Enter" then addCase ())
+    let delete = txt "button" "btn btn-default ccall-case-btn" "Delete"
+    delete.title <- "Delete this case"
+    if fcs.Cases.Length < 2 then delete.setAttribute ("disabled", "true")
+    delete.addEventListener ("click", fun _ ->
+        let fcs = now ()
+        let rest = fcs.Cases |> List.filter (fun c -> c.Name <> (currentCase fcs).Name)
+        if not rest.IsEmpty then changed { Cases = rest; Current = rest.Head.Name })
+    el "div" "ccall-chooser ccall-cases" [ txt "span" "" "Case: "; sel; name; saveAs; delete ]
+
 and render () =
     let root = getHtml "view-call"
     root.innerHTML <- ""
@@ -273,10 +319,10 @@ and render () =
         | [] -> [ helpView () ]
         | _ ->
             let proto =
-                match selected |> Option.bind (fun n -> protos |> List.tryFind (fun p -> p.FName = n)) with
+                match selected () |> Option.bind (fun n -> protos |> List.tryFind (fun p -> p.FName = n)) with
                 | Some p -> p
                 | None -> protos.Head
-            selected <- Some proto.FName
+            select proto.FName
             let chooser =
                 let sel = document.createElement_select()
                 for p in protos do
@@ -285,8 +331,9 @@ and render () =
                     o.text <- p.FName
                     sel.appendChild o |> ignore
                 sel.value <- proto.FName
-                sel.onchange <- fun _ -> selected <- Some sel.value; render ()
+                sel.onchange <- fun _ -> select sel.value; render ()
                 el "div" "ccall-chooser" [ txt "span" "" "Function: "; sel ]
+            let caseRow = caseChooser proto
             let signature =
                 let ps = proto.Params |> List.map (fun p -> typeName p.PType + " " + p.PName) |> String.concat ", "
                 txt "div" "ccall-signature" (sprintf "%s %s(%s)" (typeName proto.Ret) proto.FName (if ps = "" then "void" else ps))
@@ -317,5 +364,5 @@ and render () =
                 | h ->
                     [ txt "div" "ccall-buf-head" "History"
                       txt "pre" "ccall-history" (h |> List.map (String.concat "\n") |> String.concat "\n") ]
-            [ chooser; signature; table; buttons ] @ status @ errors @ result @ hist
+            [ chooser; caseRow; signature; table; buttons ] @ status @ errors @ result @ hist
     (header :: protoErrors @ body) |> List.iter (fun e -> root.appendChild e |> ignore)

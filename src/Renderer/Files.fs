@@ -152,6 +152,7 @@ let rec saveFileAs() =
         |> function | Some p -> Result.Ok p | None -> Result.Error()
         |> filterUntitled
         |> resultIter writeCurrentCodeToFile
+        |> resultIter (CallCases.save currentFileTabId)
         |> resultIter (setTabFilePath currentFileTabId)
         |> resultIter updateCurrentPath
         |> Result.map baseFilePath
@@ -171,6 +172,7 @@ let saveFile() =
         | "" -> saveFileAs() // No current path exists
         | path ->
             writeCurrentCodeToFile path
+            CallCases.save currentFileTabId path
             setTabSaved (currentFileTabId)
 // Figure out if any of the tabs are unsaved
 
