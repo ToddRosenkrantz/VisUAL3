@@ -1,6 +1,6 @@
 # VisUAL3: ARMv7 assembly emulator
 
-A desktop emulator for learning ARM assembly. You write ARMv7 (A32) code in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
+A desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a Cortex-A7-class core in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
 
 VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 8).
 
@@ -36,7 +36,7 @@ table:  .word   10, 20, 30, -5
 ```
 
 - **Syntax:** GNU `as`, unified ARM syntax. Labels end with `:`, comments are `@`, `//` or `/* */`, and `;` separates statements. Directives include `.text`/`.data`/`.bss`, `.word`/`.hword`/`.byte`, `.ascii`/`.asciz`, `.space`, `.align` and `.equ`. gcc boilerplate such as `.type`, `.size`, `.syntax unified` and `.cfi_*` is accepted.
-- **Instructions:** data processing, shifts, `mul`/`mla`, `ldr`/`str` with `b` and `h` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx` and `adr`, all with condition codes.
+- **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, `ldr`/`str` with `b` and `h` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx` and `adr`, all with condition codes.
 - **Running:** execution starts at the first instruction in `.text`. It ends when execution runs past the last instruction, or when the code returns with `bx lr`. SP starts at `0xFF000000`, and LR at a return address that stops the run.
 - **Not supported:** floating point (the core has no FPU), Thumb, `svc`/system calls, `blx`, doubleword loads and stores (`ldrd`/`strd`), and macros.
 

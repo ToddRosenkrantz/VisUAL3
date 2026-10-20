@@ -57,7 +57,12 @@ let opDocs = [
     dp3 "ORR" "Rd := Rn OR op2"
     dp3 "EOR" "Rd := Rn XOR op2"
     dp3 "BIC" "Rd := Rn AND NOT op2"
-    dp2 "MOV" "Rd := op2"
+    dp2 "MOV" "Rd := op2 (a 16-bit value that is not an ARM immediate becomes movw)"
+    doc "MOVW" [ "" ] "Rd := a 16-bit value (0-65535)" "movw{cond} Rd, #imm16" [ "movw r0, #0x1234"; "movw r0, #:lower16:table" ]
+    doc "MOVT" [ "" ] "top half of Rd := a 16-bit value; the bottom half is kept" "movt{cond} Rd, #imm16"
+        [ "movt r0, #0x1234       @ after movw r0, #0x5678: r0 = 0x12345678"; "movt r0, #:upper16:table" ]
+    doc "NEG" [ ""; "S" ] "Rd := 0 - Rm (same as rsb Rd, Rm, #0)" "neg{s}{cond} Rd, Rm" [ "neg r0, r1"; "negs r2, r2" ]
+    doc "NOP" [ "" ] "do nothing" "nop{cond}" [ "nop" ]
     dp2 "MVN" "Rd := NOT op2"
     cmp "CMP" "set NZCV from Rn - op2"
     cmp "CMN" "set NZCV from Rn + op2"
@@ -70,6 +75,15 @@ let opDocs = [
     doc "RRX" [ ""; "S" ] "Rd := Rm rotated right one bit through C" "rrx{s}{cond} Rd, Rm" [ "rrx r0, r1"; "rrxs r2" ]
     doc "MUL" [ ""; "S" ] "Rd := Rn * Rm (low 32 bits). S sets N and Z only" "mul{s}{cond} Rd, Rn, Rm" [ "mul r0, r1, r2"; "mul r3, r3, r4"; "muls r0, r1" ]
     doc "MLA" [ ""; "S" ] "Rd := Rn * Rm + Ra (low 32 bits). S sets N and Z only" "mla{s}{cond} Rd, Rn, Rm, Ra" [ "mla r0, r1, r2, r3" ]
+    doc "MLS" [ "" ] "Rd := Ra - Rn * Rm (low 32 bits)" "mls{cond} Rd, Rn, Rm, Ra" [ "mls r0, r1, r2, r3" ]
+    doc "UMULL" [ ""; "S" ] "RdHi:RdLo := Rn * Rm, unsigned 64-bit product. S sets N and Z" "umull{s}{cond} RdLo, RdHi, Rn, Rm" [ "umull r0, r1, r2, r3" ]
+    doc "SMULL" [ ""; "S" ] "RdHi:RdLo := Rn * Rm, signed 64-bit product. S sets N and Z" "smull{s}{cond} RdLo, RdHi, Rn, Rm" [ "smull r0, r1, r2, r3" ]
+    doc "UMLAL" [ ""; "S" ] "RdHi:RdLo += Rn * Rm, unsigned 64-bit. S sets N and Z" "umlal{s}{cond} RdLo, RdHi, Rn, Rm" [ "umlal r0, r1, r2, r3" ]
+    doc "SMLAL" [ ""; "S" ] "RdHi:RdLo += Rn * Rm, signed 64-bit. S sets N and Z" "smlal{s}{cond} RdLo, RdHi, Rn, Rm" [ "smlal r0, r1, r2, r3" ]
+    doc "UXTB" [ "" ] "Rd := low byte of Rm, zero-extended (Rm may be rotated first)" "uxtb{cond} Rd, Rm {, ror #8|16|24}" [ "uxtb r0, r1"; "uxtb r0, r1, ror #8   @ byte 1" ]
+    doc "UXTH" [ "" ] "Rd := low halfword of Rm, zero-extended" "uxth{cond} Rd, Rm {, ror #8|16|24}" [ "uxth r0, r1"; "uxth r0, r1, ror #16  @ top half" ]
+    doc "SXTB" [ "" ] "Rd := low byte of Rm, sign-extended" "sxtb{cond} Rd, Rm {, ror #8|16|24}" [ "sxtb r0, r1" ]
+    doc "SXTH" [ "" ] "Rd := low halfword of Rm, sign-extended" "sxth{cond} Rd, Rm {, ror #8|16|24}" [ "sxth r0, r1" ]
     doc "LDR" [ ""; "B"; "H"; "SB"; "SH" ]
         "load a word into Rd; b/h = byte/halfword (zero-extended), sb/sh = signed byte/halfword (sign-extended)"
         "ldr{b|h|sb|sh}{cond} Rd, address   or   ldr Rd, =value"

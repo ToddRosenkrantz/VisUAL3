@@ -491,13 +491,148 @@ let makeMulInstr accumulate symTable operands updateFlags =
         // op2 field is only used for shift tooltips: an unshifted register shows none
         destStall rd, (exec, RegisterWithShift(rm, LSL, 0u)))
 
+/// parse a register that may not be PC
+let private parseNotPC (what : string) (r : string) =
+    match parseRegister r with
+    | Ok R15 -> makeFormatError (what + " cannot be PC or R15") r ""
+    | Error _ when r.StartsWith("#") -> makeFormatError (what + " must be a register, not a literal") r ""
+    | res -> res
+
+let rec private parseRegs what = function
+    | [] -> Ok []
+    | r :: rest -> parseNotPC what r |> Result.bind (fun r' -> parseRegs what rest |> Result.map (fun rs -> r' :: rs))
+
+/// error for an S suffix on an instruction that has no flag-setting form
+let private noS (root : string) = makeFormatError (sprintf "%s has no S form: it never sets the flags" root) (root + "S") ""
+
+/// the op2 field of these instructions is only used for shift tooltips: an unshifted register shows none
+let private noShift r = RegisterWithShift(r, LSL, 0u)
+
+/// MLS Rd, Rn, Rm, Ra: Rd := Ra - Rn * Rm (low 32 bits)
+let makeMlsInstr symTable operands updateFlags =
+    if updateFlags then noS "MLS" else
+    match operands with
+    | [ _; _; _; _ ] ->
+        parseRegs "Multiply operands" operands
+        |> Result.map (fun rl ->
+            let rd, rn, rm, ra = rl.[0], rl.[1], rl.[2], rl.[3]
+            let exec (d : DataPath) =
+                let res = trimUint32 (d.Regs.[ra] - mul32 d.Regs.[rn] d.Regs.[rm])
+                Ok(writeBack res rd (toUFlags d.Fl) false d)
+            destStall rd, (exec, noShift rm))
+    | _ -> makeDPE "destination, register, register, register" (String.concat "," operands)
+
+/// UMULL/SMULL/UMLAL/SMLAL RdLo, RdHi, Rn, Rm: 64-bit product (accumulated into RdHi:RdLo).
+/// S suffix sets N from bit 63 and Z if all 64 bits are zero.
+let makeLongMulInstr (signed : bool) (accumulate : bool) symTable operands updateFlags =
+    match operands with
+    | [ _; _; _; _ ] ->
+        parseRegs "Multiply operands" operands
+        |> Result.bind (fun rl ->
+            let lo, hi, rn, rm = rl.[0], rl.[1], rl.[2], rl.[3]
+            if lo = hi then makeFormatError "RdLo and RdHi must be different registers" operands.[1] "" else
+            let exec (d : DataPath) =
+                let prod =
+                    if signed then uint64 (int64 (int32 d.Regs.[rn]) * int64 (int32 d.Regs.[rm]))
+                    else uint64 d.Regs.[rn] * uint64 d.Regs.[rm]
+                let acc = if accumulate then (uint64 d.Regs.[hi] <<< 32) ||| uint64 d.Regs.[lo] else 0UL
+                let res = prod + acc
+                let rLo, rHi = uint32 (res &&& 0xFFFFFFFFUL), uint32 (res >>> 32)
+                let fl = if updateFlags then { d.Fl with N = setFlagN rHi; Z = (res = 0UL) } else d.Fl
+                let d' = d |> Helpers.setReg lo rLo |> Helpers.setReg hi rHi
+                Ok({ d' with Fl = fl }, { toUFlags fl with NZU = updateFlags; RegU = [ lo; hi ] })
+            Ok(destStall lo, (exec, noShift rm)))
+    | _ -> makeDPE "RdLo, RdHi, register, register" (String.concat "," operands)
+
+/// value of a MOVW/MOVT operand: #imm16, #:lower16:expr or #:upper16:expr
+let private parseImm16 (root : string) symTable (imm : string) =
+    let expr (prefix : string) = imm.Substring(prefix.Length).Trim() |> parseNumberExpression symTable
+    match imm.Trim() with
+    | i when i.ToLower().StartsWith("#:lower16:") -> expr "#:lower16:" |> Result.map (fun v -> v &&& 0xFFFFu)
+    | i when i.ToLower().StartsWith("#:upper16:") -> expr "#:upper16:" |> Result.map (fun v -> v >>> 16)
+    | i when i.StartsWith("#") ->
+        expr "#" |> Result.bind (fun v ->
+            if v <= 0xFFFFu then Ok v
+            else makeFormatError (sprintf "%s takes a 16-bit value (0-65535): use #:lower16: or #:upper16: for part of a larger one" root) imm "")
+    | i -> makeFormatError (sprintf "%s takes an immediate value: #n, #:lower16:symbol or #:upper16:symbol" root) i ""
+
+/// MOVW Rd, #imm16 (Rd := imm16) or MOVT Rd, #imm16 (top half of Rd := imm16, bottom half kept)
+let makeMovWTInstr (top : bool) symTable operands updateFlags =
+    let root = if top then "MOVT" else "MOVW"
+    if updateFlags then noS root else
+    match operands with
+    | [ rd; imm ] ->
+        parseNotPC (root + " destination") rd
+        |> Result.bind (fun rd' ->
+            parseImm16 root symTable imm
+            |> Result.map (fun v ->
+                let exec (d : DataPath) =
+                    let res = if top then (v <<< 16) ||| (d.Regs.[rd'] &&& 0xFFFFu) else v
+                    Ok(writeBack res rd' (toUFlags d.Fl) false d)
+                0, (exec, noShift rd')))
+    | _ -> makeDPE "register, #16-bit value" (String.concat "," operands)
+
+/// MOV: as in GNU as for ARMv7, a 16-bit immediate that is not an ARM immediate becomes MOVW
+let makeMovInstr symTable operands updateFlags =
+    match makeMoveInstr InvertedLit false symTable operands updateFlags, operands with
+    | Error e, [ _; imm ] when not updateFlags && imm.Trim().StartsWith("#") ->
+        match parseNumberExpression symTable (imm.Trim().Substring(1)) with
+        | Ok v when v <= 0xFFFFu -> makeMovWTInstr false symTable operands updateFlags
+        | _ -> Error e
+    | res, _ -> res
+
+/// UXTB/UXTH/SXTB/SXTH Rd, Rm {, ROR #8|16|24}: extend the low byte or halfword of (rotated) Rm
+let makeExtendInstr (signed : bool) (bits : int) symTable (operands : string list) updateFlags =
+    let root = (if signed then "SXT" else "UXT") + (if bits = 8 then "B" else "H")
+    if updateFlags then noS root else
+    let rot =
+        match operands with
+        | [ _; _ ] -> Ok 0
+        | [ _; _; r ] ->
+            match r.Trim().ToUpper().Replace(" ", "") with
+            | "ROR#0" -> Ok 0
+            | "ROR#8" -> Ok 8
+            | "ROR#16" -> Ok 16
+            | "ROR#24" -> Ok 24
+            | _ -> makeFormatError "the rotation must be ror #8, ror #16 or ror #24" r ""
+        | _ -> makeDPE "destination, register {, ror #8|16|24}" (String.concat "," operands)
+    rot
+    |> Result.bind (fun rot ->
+        parseRegs (root + " operands") (List.take 2 operands)
+        |> Result.map (fun rl ->
+            let rd, rm = rl.[0], rl.[1]
+            let exec (d : DataPath) =
+                let v = d.Regs.[rm]
+                let rotated = if rot = 0 then v else trimUint32 ((v >>> rot) ||| (v <<< (32 - rot)))
+                let mask = if bits = 8 then 0xFFu else 0xFFFFu
+                let low = rotated &&& mask
+                let signBit = if bits = 8 then 0x80u else 0x8000u
+                let res = if signed && (low &&& signBit) <> 0u then trimUint32 (low ||| ~~~mask) else low
+                Ok(writeBack res rd (toUFlags d.Fl) false d)
+            destStall rd, (exec, noShift rm)))
+
+/// NEG{S} Rd, Rm: Rd := 0 - Rm (the same as RSB{S} Rd, Rm, #0)
+let makeNegInstr symTable operands updateFlags =
+    match operands with
+    | [ rd; rm ] -> makeArithmeticInstr NoNegLit simRSB symTable [ rd; rm; "#0" ] updateFlags
+    | _ -> makeDPE "destination, register" (String.concat "," operands)
+
+/// NOP: do nothing
+let makeNopInstr symTable operands updateFlags =
+    if updateFlags then noS "NOP" else
+    match operands with
+    | [] | [ "" ] -> Ok(0, ((fun (d : DataPath) -> Ok(d, toUFlags d.Fl)), noShift R0))
+    | _ -> makeFormatError "NOP takes no operands" (String.concat "," operands) ""
+
 // ///////////// top-level parsing ///////////////////////////////
 
 
 
 /// specification for set of instructions
 let spec = [
-    "MOV", fun s a b -> makeMoveInstr InvertedLit false s a b
+    "MOV", fun s a b -> makeMovInstr s a b
+    "MOVW", fun s a b -> makeMovWTInstr false s a b
+    "MOVT", fun s a b -> makeMovWTInstr true s a b
     "MVN", fun s a b -> makeMoveInstr InvertedLit true s a b
 
     "ADD", fun s a b -> makeArithmeticInstr NegatedLit simADD s a b
@@ -520,6 +655,19 @@ let spec = [
 
     "MUL", fun s a b -> makeMulInstr false s a b
     "MLA", fun s a b -> makeMulInstr true s a b
+    "MLS", fun s a b -> makeMlsInstr s a b
+    "UMULL", fun s a b -> makeLongMulInstr false false s a b
+    "SMULL", fun s a b -> makeLongMulInstr true false s a b
+    "UMLAL", fun s a b -> makeLongMulInstr false true s a b
+    "SMLAL", fun s a b -> makeLongMulInstr true true s a b
+
+    "UXTB", fun s a b -> makeExtendInstr false 8 s a b
+    "UXTH", fun s a b -> makeExtendInstr false 16 s a b
+    "SXTB", fun s a b -> makeExtendInstr true 8 s a b
+    "SXTH", fun s a b -> makeExtendInstr true 16 s a b
+
+    "NEG", fun s a b -> makeNegInstr s a b
+    "NOP", fun s a b -> makeNopInstr s a b
 
     "CMN", fun s a b -> makeComparisonInstr NegatedLit simADD s a b
     "CMP", fun s a b -> makeComparisonInstr NegatedLit simSUB s a b

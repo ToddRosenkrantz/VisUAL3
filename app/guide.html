@@ -44,7 +44,7 @@
 <body>
 <header>
   <h1>Assembly language guide</h1>
-  <p>ARMv7 (A32) code in GNU assembler syntax, as written for gcc, clang and Linux. The emulated core has no floating-point unit.</p>
+  <p>ARMv7 (A32) code in GNU assembler syntax, as written for gcc, clang and Linux. The emulated core is a Cortex-A7-class ARMv7-A processor with no floating-point unit.</p>
 </header>
 <div class="layout">
 <nav aria-label="Contents">
@@ -107,17 +107,22 @@
 <table>
   <tr><th>Kind</th><th>Instructions</th><th>Example</th></tr>
   <tr><td>Arithmetic and logic</td><td class="mono">add sub rsb adc sbc rsc and orr eor bic</td><td class="mono">add r0, r1, r2, lsl #2</td></tr>
-  <tr><td>Move</td><td class="mono">mov mvn</td><td class="mono">mov r0, #0xff</td></tr>
+  <tr><td>Move</td><td class="mono">mov mvn movw movt neg</td><td class="mono">movw r0, #0x5678</td></tr>
   <tr><td>Compare (set flags only)</td><td class="mono">cmp cmn tst teq</td><td class="mono">cmp r0, #10</td></tr>
   <tr><td>Shift</td><td class="mono">lsl lsr asr ror rrx</td><td class="mono">lsl r0, r1, #3</td></tr>
-  <tr><td>Multiply</td><td class="mono">mul mla</td><td class="mono">mla r0, r1, r2, r3</td></tr>
+  <tr><td>Multiply</td><td class="mono">mul mla mls</td><td class="mono">mla r0, r1, r2, r3</td></tr>
+  <tr><td>Long multiply (64-bit result)</td><td class="mono">umull smull umlal smlal</td><td class="mono">umull r0, r1, r2, r3</td></tr>
+  <tr><td>Extend byte or halfword</td><td class="mono">uxtb uxth sxtb sxth</td><td class="mono">sxtb r0, r1</td></tr>
+  <tr><td>Do nothing</td><td class="mono">nop</td><td class="mono">nop</td></tr>
   <tr><td>Load and store</td><td class="mono">ldr str ldrb strb ldrh strh ldrsb ldrsh</td><td class="mono">ldr r0, [r1, #4]</td></tr>
   <tr><td>Several registers</td><td class="mono">ldm stm push pop</td><td class="mono">push {r4, lr}</td></tr>
   <tr><td>Branch</td><td class="mono">b bl bx</td><td class="mono">bl sum_array</td></tr>
   <tr><td>Address of a label</td><td class="mono">adr, ldr Rd, =label</td><td class="mono">ldr r0, =table</td></tr>
 </table>
 <ul>
-  <li>Add <code>s</code> to set the flags: <code>adds</code>, <code>movs</code>. Compares always set them. <code>muls</code> and <code>mlas</code> set N and Z only.</li>
+  <li>Add <code>s</code> to set the flags: <code>adds</code>, <code>movs</code>. Compares always set them. <code>muls</code> and <code>mlas</code> set N and Z only; <code>umulls</code> and the other long multiplies set N and Z from the 64-bit result. <code>movw</code>, <code>movt</code>, <code>mls</code>, the extends and <code>nop</code> have no <code>s</code> form.</li>
+  <li>Any 32-bit constant can be built with <code>movw</code> then <code>movt</code>: <code>movw r0, #:lower16:table</code> and <code>movt r0, #:upper16:table</code> load an address, as gcc does. Like GNU <code>as</code>, <code>mov r0, #0x1234</code> becomes <code>movw</code> when the value fits in 16 bits but is not an ARM immediate.</li>
+  <li>The long multiplies write the low word to the first register and the high word to the second: <code>umull lo, hi, r2, r3</code>. The extends can rotate first: <code>uxtb r0, r1, ror #8</code> takes byte 1.</li>
   <li>Add a <a href="#conditions">condition code</a> to run an instruction only when it holds: <code>addeq</code>, <code>bne</code>, <code>bxle lr</code>. The <code>s</code> comes before the condition: <code>subsgt</code>.</li>
   <li>The destination may be left out when it is the first source: <code>add r0, #1</code> means <code>add r0, r0, #1</code>.</li>
   <li><code>ldm</code>/<code>stm</code> take a mode: <code>ia</code> (the default), <code>ib</code>, <code>da</code>, <code>db</code>, or the stack names <code>fd</code>, <code>ed</code>, <code>fa</code>, <code>ea</code>. <code>push {list}</code> is <code>stmdb sp!, {list}</code> and <code>pop {list}</code> is <code>ldmia sp!, {list}</code>. The lowest-numbered register always uses the lowest address.</li>

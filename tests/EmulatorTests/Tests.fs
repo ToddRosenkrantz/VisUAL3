@@ -900,7 +900,73 @@ let addressingTests = [
     "halfword RRX offset rejected", "ldrh r0, [r1, r2, rrx]", [ ParseError ]
 ]
 
-let allTests = unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
+/// Cortex-A7 (ARMv7-A) instructions: MOVW/MOVT, extends, long multiplies, MLS, NEG, NOP
+let a7Tests = [
+    "MOVW and MOVT build a 32-bit constant",
+    "movw r0, #0x5678\nmovt r0, #0x1234\nmov r1, #-1\nmovt r1, #0", [ Reg (R0, 0x12345678u); Reg (R1, 0xFFFFu) ]
+    "MOVW/MOVT with :lower16: and :upper16:",
+    """    movw r0, #:lower16:big
+           movt r0, #:upper16:big
+           movw r1, #:lower16:d
+           movt r1, #:upper16:d
+           ldr r2, =d
+           .equ big, 0xCAFEF00D
+           .data
+       d:  .word 0""",
+    [ Reg (R0, 0xCAFEF00Du); Reg (R2, 0x200u); Reg (R1, 0x200u) ]
+    "MOVW value over 16 bits rejected", "movw r0, #0x10000", [ ParseError ]
+    "MOVWS rejected", "movws r0, #1", [ ParseError ]
+    "MOVT to PC rejected", "movt pc, #1", [ ParseError ]
+    "conditional MOVW", "cmp r0, #1\nmovweq r1, #5\nmovwne r2, #6", [ Reg (R1, 0u); Reg (R2, 6u) ]
+    "MOV with a 16-bit value becomes MOVW", "mov r0, #0x1234\nmov r1, #65535", [ Reg (R0, 0x1234u); Reg (R1, 0xFFFFu) ]
+    "MOVS with a non-ARM 16-bit value rejected", "movs r0, #0x1234", [ ParseError ]
+    "MOV over 16 bits still rejected", "mov r0, #0x12345", [ ParseError ]
+
+    "UXTB, UXTH, SXTB, SXTH",
+    """    ldr r1, =0x1234F680
+           uxtb r2, r1
+           uxth r3, r1
+           sxtb r4, r1
+           sxth r5, r1
+           sxtb r6, r1, ror #8
+           uxtb r7, r1, ror #24""",
+    [ Reg (R2, 0x80u); Reg (R3, 0xF680u); Reg (R4, 0xFFFFFF80u); Reg (R5, 0xFFFFF680u); Reg (R6, 0xFFFFFFF6u); Reg (R7, 0x12u) ]
+    "extend rotation must be 8, 16 or 24", "uxtb r0, r1, ror #4", [ ParseError ]
+    "extend has no S form", "uxtbs r0, r1", [ ParseError ]
+
+    "MLS",
+    "mov r1, #6\nmov r2, #7\nmov r3, #50\nmls r0, r1, r2, r3", [ Reg (R0, 8u) ]
+    "UMULL and SMULL",
+    """    mvn r2, #0
+           mov r3, #2
+           umull r0, r1, r2, r3
+           smull r4, r5, r2, r3""",
+    [ Reg (R0, 0xFFFFFFFEu); Reg (R1, 1u); Reg (R4, 0xFFFFFFFEu); Reg (R5, 0xFFFFFFFFu) ]
+    "UMULL with large operands",
+    "ldr r2, =0xDEADBEEF\nldr r3, =0xCAFEBABE\numull r0, r1, r2, r3", [ Reg (R0, 0x88CF5B62u); Reg (R1, 0xB092AB7Bu) ]
+    "UMLAL and SMLAL accumulate into 64 bits",
+    """    mvn r0, #0
+           mov r1, #0
+           mov r2, #1
+           mov r3, #1
+           umlal r0, r1, r2, r3
+           mov r4, #5
+           mov r5, #0
+           mvn r6, #0
+           smlal r4, r5, r6, r3""",
+    [ Reg (R0, 0u); Reg (R1, 1u); Reg (R4, 4u); Reg (R5, 0u) ]
+    "UMULLS sets N and Z from the 64-bit result",
+    "mov r2, #0\nmov r3, #5\numulls r0, r1, r2, r3", [ Flags (false, true, false, false) ]
+    "SMULLS negative sets N",
+    "mvn r2, #0\nmov r3, #5\nsmulls r0, r1, r2, r3", [ Flags (true, false, false, false) ]
+    "UMULL with RdLo = RdHi rejected", "umull r0, r0, r1, r2", [ ParseError ]
+
+    "NEG and NEGS", "mov r1, #7\nneg r0, r1\nnegs r2, r2", [ Reg (R0, 0xFFFFFFF9u); Reg (R2, 0u); Flags (false, true, true, false) ]
+    "NOP does nothing", "mov r0, #3\nnop\nnopeq\nadd r0, #1", [ Reg (R0, 4u) ]
+    "NOP takes no operands", "nop r0", [ ParseError ]
+]
+
+let allTests = a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 
