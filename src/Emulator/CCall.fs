@@ -649,6 +649,81 @@ let decodeResult (setup : CallSetup) (ri : RunInfo) : CallResult =
     { Outcome = outcome; R0 = r0; ReturnValue = retVal; ReturnText = returnText
       BufferResults = bufferResults; Problems = problems }
 
+// ///////////////////////////// expected results ////////////////////////////
+
+/// What a case expects: the result, and the contents of pointer arguments after the call.
+/// Empty texts are not checked.
+type Expectation = { Return : string; After : Map<string, string> }
+
+type CheckResult = { What : string; Passed : bool; Detail : string }
+
+/// a value typed for type t, as the same int64 form readValue and ReturnValue use
+let private evalExpected (syms : Map<string, uint32>) (t : CType) (txt : string) : Result<int64, string> =
+    match t, txt.Trim() with
+    | CFloat d, s -> evalFloat d s
+    | CIntT(CInt64 s), v -> eval64 s v
+    | CPtr _, "NULL" -> Ok 0L
+    | CIntT CBool, ("true" | "false" as b) -> Ok(if b = "true" then 1L else 0L)
+    | t, v -> evalValue syms t v
+
+/// floats match within a relative 1e-6 (double 1e-12), NaN matches NaN; everything else exactly
+let private sameValue (t : CType) (expected : int64) (actual : int64) =
+    match t with
+    | CFloat d ->
+        let fmt = fpFormat d
+        let e, a = FpMath.toFloat fmt (rawOfBits expected), FpMath.toFloat fmt (rawOfBits actual)
+        (System.Double.IsNaN e && System.Double.IsNaN a) || e = a
+        || abs (e - a) <= (if d then 1e-12 else 1e-6) * max 1.0 (abs e)
+    | _ -> expected = actual
+
+/// Check a call's result against what the case expects
+let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) : CheckResult list =
+    let syms = setup.Run.st |> Map.map (fun _ (v, _) -> v)
+    let wanted = ex.After |> Map.filter (fun _ t -> t.Trim() <> "")
+    let hasReturn = ex.Return.Trim() <> "" && setup.Proto.Ret <> CVoid
+    if not hasReturn && wanted.IsEmpty then []
+    elif res.Outcome <> Returned then [ { What = "call"; Passed = false; Detail = "the function did not return, so nothing could be checked" } ]
+    else
+        [ if hasReturn then
+              let t = setup.Proto.Ret
+              match evalExpected syms t ex.Return, res.ReturnValue with
+              | Ok e, Some a ->
+                  let ok = sameValue t e a
+                  yield { What = "result"; Passed = ok
+                          Detail = (if ok then sprintf "%s, as expected" (formatValue t a)
+                                    else sprintf "expected %s, got %s" (formatValue t e) (formatValue t a)) }
+              | Error msg, _ -> yield { What = "result"; Passed = false; Detail = "the expected value is not valid: " + msg }
+              | _, None -> ()
+          for KeyValue(pname, text) in wanted do
+              match res.BufferResults |> List.tryFind (fun br -> br.Buffer.BParam = pname) with
+              | None -> yield { What = pname; Passed = false; Detail = "no array or buffer was passed for it, so it cannot be checked" }
+              | Some br ->
+                  let elem = br.Buffer.BElem
+                  let t = text.Trim()
+                  let expected =
+                      if t.StartsWith "\"" then
+                          match elem with
+                          | CIntT(CChar _) | CVoid -> GnuLex.parseStringLiteral t |> Result.map (fun bytes -> (bytes |> List.map int64) @ [ 0L ])
+                          | _ -> Error "a string can only be expected in a char buffer"
+                      else
+                          let inner = if t.StartsWith "{" && t.EndsWith "}" then t.Substring(1, t.Length - 2) else t
+                          GnuLex.splitArgs inner
+                          |> List.map (evalExpected syms elem)
+                          |> List.fold (fun acc r -> match acc, r with
+                                                     | Ok xs, Ok x -> Ok(xs @ [ x ])
+                                                     | Error e, _ | _, Error e -> Error e) (Ok [])
+                  let show vs = vs |> List.map (formatValue elem >> fun s -> s.Split(' ').[0]) |> String.concat ", "
+                  match expected with
+                  | Error msg -> yield { What = pname; Passed = false; Detail = "the expected contents are not valid: " + msg }
+                  | Ok e when e.Length > br.After.Length ->
+                      yield { What = pname; Passed = false; Detail = sprintf "%d elements expected, but it has only %d" e.Length br.After.Length }
+                  | Ok e ->
+                      let actual = List.truncate e.Length br.After
+                      let ok = List.forall2 (sameValue elem) e actual
+                      yield { What = pname; Passed = ok
+                              Detail = (if ok then sprintf "{%s}, as expected" (show actual)
+                                        else sprintf "expected {%s}, got {%s}" (show e) (show actual)) } ]
+
 /// Prepare, run (up to maxSteps instructions) and decode a call
 let callFunction (lim : LoadImage) (sourceLines : string list) (proto : Prototype) (args : ArgInput list) (maxSteps : int64) =
     prepareCall lim sourceLines proto args

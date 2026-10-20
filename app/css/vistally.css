@@ -442,6 +442,10 @@ div.after {
 .ccall-case-select { max-width: 140px; }
 .ccall-case-name { width: 120px; font-size: 12px; padding: 2px 4px; }
 .ccall-case-btn { font-size: 12px; padding: 1px 8px; }
+.ccall-expect { background: #fbfaf2; }
+.ccall-expected-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; white-space: nowrap; }
+.ccall-check-pass { color: #1d7a1d; font-weight: bold; margin: 2px 0; }
+.ccall-check-fail { color: #b3261e; font-weight: bold; margin: 2px 0; }
 .ccall-signature { font-family: "Fira Code", monospace; font-size: 13px; background: #fff; border: 1px solid #bbb;
                    border-radius: 4px; padding: 5px 7px; margin: 6px 0; word-break: break-word; }
 .ccall-params { width: 100%; border-collapse: collapse; margin: 4px 0; }

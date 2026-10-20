@@ -22,8 +22,9 @@ type PtrKind =
 
 type ParamInput = { Kind : PtrKind; Text : string }
 
-/// One named set of arguments: parameter name -> input
-type Case = { Name : string; Args : Map<string, ParamInput> }
+/// One named set of arguments: parameter name -> input; and what the call should produce:
+/// key "return" for the result, a pointer parameter's name for its contents after the call
+type Case = { Name : string; Args : Map<string, ParamInput>; Expect : Map<string, string> }
 
 /// The cases of one function, and the one shown
 type FuncCases = { Cases : Case list; Current : string }
@@ -44,7 +45,7 @@ let defaultCaseName = "case 1"
 let funcCases tabId fname =
     match Map.tryFind fname (get tabId).Funcs with
     | Some f when not f.Cases.IsEmpty -> f
-    | _ -> { Cases = [ { Name = defaultCaseName; Args = Map.empty } ]; Current = defaultCaseName }
+    | _ -> { Cases = [ { Name = defaultCaseName; Args = Map.empty; Expect = Map.empty } ]; Current = defaultCaseName }
 
 let currentCase (f : FuncCases) =
     f.Cases |> List.tryFind (fun c -> c.Name = f.Current) |> Option.defaultValue f.Cases.Head
@@ -74,7 +75,9 @@ let private present (x : obj) = not (isNullOrUndefined x)
 
 /// true if any case holds an argument worth saving
 let private hasArgs (fc : FileCases) =
-    fc.Funcs |> Map.exists (fun _ f -> f.Cases |> List.exists (fun c -> c.Args |> Map.exists (fun _ a -> a.Text.Trim() <> "")))
+    fc.Funcs |> Map.exists (fun _ f ->
+        f.Cases |> List.exists (fun c ->
+            (c.Args |> Map.exists (fun _ a -> a.Text.Trim() <> "")) || (c.Expect |> Map.exists (fun _ e -> e.Trim() <> ""))))
 
 let toJson (fc : FileCases) =
     let funcs = createEmpty<obj>
@@ -85,7 +88,10 @@ let toJson (fc : FileCases) =
                 let args = createEmpty<obj>
                 for KeyValue(p, a) in c.Args do
                     args?(p) <- createObj [ "kind" ==> kindName a.Kind; "text" ==> a.Text ]
-                createObj [ "name" ==> c.Name; "args" ==> args ])
+                let expect = createEmpty<obj>
+                for KeyValue(k, e) in c.Expect do
+                    if e.Trim() <> "" then expect?(k) <- e
+                createObj [ "name" ==> c.Name; "args" ==> args; "expect" ==> expect ])
             |> List.toArray
         funcs?(fname) <- createObj [ "current" ==> f.Current; "cases" ==> cases ]
     stringify (createObj [
@@ -119,7 +125,11 @@ let ofJson (text : string) : Result<FileCases, string> =
                                         p, (if jsTypeof a = "object" && present a then { Kind = kindOf (str a?kind); Text = str a?text }
                                             else { Kind = PArray; Text = str a }))
                                     |> Map.ofArray
-                            { Name = (str c?name).Trim(); Args = args })
+                            let expObj = c?expect
+                            let expect =
+                                if not (present expObj) then Map.empty
+                                else keys expObj |> Array.map (fun k -> k, str expObj?(k)) |> Map.ofArray
+                            { Name = (str c?name).Trim(); Args = args; Expect = expect })
                         |> Array.filter (fun c -> c.Name <> "")
                         |> List.ofArray
                     fname, { Cases = cases; Current = str f?current })

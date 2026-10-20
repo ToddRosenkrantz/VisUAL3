@@ -259,6 +259,13 @@
 <h3>Saving arguments as cases</h3>
 <p>Each function can keep several named sets of arguments, called cases. The <b>Case</b> row under <b>Function</b> picks one. Type a name and press <b>Save as</b> to keep the current arguments as a new case. Like Save As in an editor, the new case is then the one you edit. <b>Delete</b> removes the case shown.</p>
 <p>Cases are saved with the source: saving <code>prog.s</code> also writes <code>prog.ccall</code> beside it, and opening <code>prog.s</code> loads <code>prog.ccall</code> if it is there. Changing an argument marks the file unsaved. A <code>.ccall</code> file is short, readable JSON, so it can be edited by hand or handed out with the <code>.s</code>.</p>
+<h3>Expected results</h3>
+<p>A case can also say what the call should produce, so it checks itself. Type the expected value in <b>Expected … result</b> below the arguments, and for a pointer that is not <code>const</code>, its expected contents in the box under its argument: <code>{0, 1, 4, 9}</code>, or <code>"text"</code> for a char buffer. Only the elements you list are compared, from the first. After each call the result shows ✔ or ✘ for every check, with the expected and actual values, and History counts how many passed.</p>
+<ul>
+  <li>Integer, pointer and <code>_Bool</code> results must match exactly. A pointer can be expected as a label, an address or <code>NULL</code>.</li>
+  <li><code>float</code> and <code>double</code> results match if they are within a relative 10<sup>−6</sup> (double: 10<sup>−12</sup>) of the expected value, so ordinary rounding differences pass.</li>
+  <li>Expectations are part of the case and are saved in the <code>.ccall</code> file.</li>
+</ul>
 <h3>How arguments are passed</h3>
 <ul>
   <li>Integer and pointer arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>

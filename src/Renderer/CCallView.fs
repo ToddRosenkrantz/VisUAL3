@@ -21,6 +21,9 @@ open CallCases
 /// call currently running in the emulator
 let mutable private activeCall : CallSetup option = None
 let mutable private lastResult : (CallSetup * CallResult) option = None
+/// what the case expected when the running call started, and the checks of the last result
+let mutable private activeExpect : Expectation = { Return = ""; After = Map.empty }
+let mutable private lastChecks : CheckResult list = []
 let mutable private lastErrors : string list = []
 let mutable private history : string list list = []
 
@@ -68,6 +71,19 @@ let private setInput (f : Prototype) (p : CParam) v =
     let cur = currentCase fcs
     if Map.tryFind p.PName cur.Args <> Some v then
         let cur' = { cur with Args = Map.add p.PName v cur.Args }
+        let cases = fcs.Cases |> List.map (fun c -> if c.Name = cur.Name then cur' else c)
+        setFuncCases currentFileTabId f.FName { Cases = cases; Current = cur.Name }
+        Tabs.setTabUnsaved currentFileTabId
+
+/// an expectation of the current case: "return", or a pointer parameter's name
+let private expectOf (f : Prototype) (key : string) =
+    (currentCase (funcCases currentFileTabId f.FName)).Expect |> Map.tryFind key |> Option.defaultValue ""
+
+let private setExpect (f : Prototype) (key : string) (v : string) =
+    let fcs = funcCases currentFileTabId f.FName
+    let cur = currentCase fcs
+    if expectOf f key <> v then
+        let cur' = { cur with Expect = Map.add key v cur.Expect }
         let cases = fcs.Cases |> List.map (fun c -> if c.Name = cur.Name then cur' else c)
         setFuncCases currentFileTabId f.FName { Cases = cases; Current = cur.Name }
         Tabs.setTabUnsaved currentFileTabId
@@ -133,6 +149,9 @@ let rec private startCall (proto : Prototype) (stepInto : bool) =
             | Error errs -> showErrors errs
             | Ok setup ->
                 activeCall <- Some setup
+                activeExpect <-
+                    { Return = expectOf proto "return"
+                      After = proto.Params |> List.map (fun p -> p.PName, expectOf proto p.PName) |> Map.ofList }
                 lastErrors <- []
                 render ()
                 Integration.startCCall setup.Run stepInto
@@ -150,9 +169,16 @@ and onRunEnd (ri : ExecutionTop.RunInfo) =
         | state ->
             let res = decodeResult setup ri
             lastResult <- Some(setup, res)
+            lastChecks <- checkExpectations setup res activeExpect
             if state <> ExecutionTop.PSRunning then
                 activeCall <- None
-                history <- (formatCall setup res |> List.truncate 3) :: history |> List.truncate 10
+                let checked =
+                    match lastChecks with
+                    | [] -> []
+                    | cs ->
+                        let passed = cs |> List.filter (fun c -> c.Passed) |> List.length
+                        [ sprintf "  checks: %d passed, %d failed" passed (cs.Length - passed) ]
+                history <- ((formatCall setup res |> List.truncate 3) @ checked) :: history |> List.truncate 10
             render ()
     | _ -> ()
 
@@ -192,7 +218,17 @@ and private paramRow (proto : Prototype) (i : int) (p : CParam) =
                 setInput proto p { (inputOf proto p) with Kind = k }
                 render ()
             input.oninput <- fun _ -> setInput proto p { (inputOf proto p) with Text = input.value }
-            el "div" "ccall-ptr" [ sel; input ]
+            let expected =
+                match p.PType with
+                | CPtr(_, false) ->
+                    let e = document.createElement_input()
+                    e.value <- expectOf proto p.PName
+                    e.placeholder <- (if isCharLike elem then "expected after the call: {…} or \"text\" (optional)" else "expected after the call, e.g. {0, 1, 4} (optional)")
+                    e.className <- "ccall-input ccall-expect"
+                    e.oninput <- fun _ -> setExpect proto p.PName e.value
+                    [ e :> HTMLElement ]
+                | _ -> []
+            el "div" "ccall-ptr" ([ sel :> HTMLElement; input :> HTMLElement ] @ expected)
         | t ->
             let input = document.createElement_input()
             input.value <- inp.Text
@@ -249,7 +285,11 @@ and private resultView (setup : CallSetup) (res : CallResult) =
                 el "table" "ccall-buf" (el "tr" "" [ txt "th" "" "#"; txt "th" "" "before"; txt "th" "" "after" ] :: rows)
             el "div" "" [ head; (if b.BCount = 0 then txt "div" "ccall-raw" "(empty)" else table) ])
     let problems = res.Problems |> List.map (fun pr -> txt "div" "ccall-problem" ("⚠ " + pr))
-    el "div" "ccall-result" ([ txt "div" outcomeCls outcome ] @ retLines @ buffers @ problems)
+    let checks =
+        lastChecks |> List.map (fun c ->
+            txt "div" (if c.Passed then "ccall-check-pass" else "ccall-check-fail")
+                (sprintf "%s %s: %s" (if c.Passed then "✔" else "✘") c.What c.Detail))
+    el "div" "ccall-result" ([ txt "div" outcomeCls outcome ] @ checks @ retLines @ buffers @ problems)
 
 and private helpView () =
     el "div" "ccall-help" [
@@ -292,7 +332,8 @@ and private caseChooser (proto : Prototype) =
         elif fcs.Cases |> List.exists (fun c -> c.Name = n) then showErrors [ sprintf "There is already a case named '%s'" n ]
         else
             lastErrors <- []
-            changed { Cases = fcs.Cases @ [ { Name = n; Args = (currentCase fcs).Args } ]; Current = n }
+            let c = currentCase fcs
+            changed { Cases = fcs.Cases @ [ { Name = n; Args = c.Args; Expect = c.Expect } ]; Current = n }
     saveAs.addEventListener ("click", fun _ -> addCase ())
     name.addEventListener ("keydown", fun (e : Event) -> if (e :?> KeyboardEvent).key = "Enter" then addCase ())
     let delete = txt "button" "btn btn-default ccall-case-btn" "Delete"
@@ -347,6 +388,20 @@ and render () =
                     el "table" "ccall-params"
                         (el "tr" "" [ txt "th" "" "in"; txt "th" "" "parameter"; txt "th" "" "argument" ]
                          :: List.mapi (paramRow proto) ps)
+            let expectedResult =
+                match proto.Ret with
+                | CVoid -> []
+                | t ->
+                    let e = document.createElement_input()
+                    e.value <- expectOf proto "return"
+                    e.placeholder <-
+                        (match t with
+                         | CFloat _ -> "optional, e.g. 2.5 (matched within rounding)"
+                         | CPtr _ -> "optional: a label, an address or NULL"
+                         | _ -> "optional, e.g. 6")
+                    e.className <- "ccall-input ccall-expect"
+                    e.oninput <- fun _ -> setExpect proto "return" e.value
+                    [ el "div" "ccall-expected-row" [ txt "span" "" (sprintf "Expected %s result: " (typeName t)); e ] ]
             let callBtn = txt "button" "btn btn-default ccall-call" "Call"
             callBtn.addEventListener ("click", fun _ -> startCall proto false)
             let stepBtn = txt "button" "btn btn-default" "Step into"
@@ -367,5 +422,5 @@ and render () =
                 | h ->
                     [ txt "div" "ccall-buf-head" "History"
                       txt "pre" "ccall-history" (h |> List.map (String.concat "\n") |> String.concat "\n") ]
-            [ chooser; caseRow; signature; table; buttons ] @ status @ errors @ result @ hist
+            [ chooser; caseRow; signature; table ] @ expectedResult @ [ buttons ] @ status @ errors @ result @ hist
     (header :: protoErrors @ body) |> List.iter (fun e -> root.appendChild e |> ignore)

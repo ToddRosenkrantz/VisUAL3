@@ -1767,6 +1767,29 @@ sum64:
         callFails ident [ "-1" ] "negative"
         @ callFails sid [ "0x8000000000000000" ] "does not fit"
         @ callFails sid [ "12x" ] "not a valid number"
+    "expect: results, arrays, strings and failures", fun () ->
+        let check code args ret after =
+            match cCall code args with
+            | Ok(setup, res) -> checkExpectations setup res { Return = ret; After = Map.ofList after } |> List.map (fun c -> c.What, c.Passed, c.Detail)
+            | Error e -> [ "call", false, e ]
+        let squares = "@ C: void squares(int *out, int n);\n.global squares\nsquares:\nmov r2, #0\n1: mul r3, r2, r2\nstr r3, [r0], #4\nadd r2, r2, #1\ncmp r2, r1\nblt 1b\nbx lr"
+        let hi = "@ C: void hi(char *s);\n.global hi\nhi:\nmov r1, #'h'\nstrb r1, [r0]\nmov r1, #'i'\nstrb r1, [r0, #1]\nmov r1, #0\nstrb r1, [r0, #2]\nbx lr"
+        let add2 = "@ C: float add2(float a, float b);\n.global add2\nadd2:\nvadd.f32 s0, s0, s1\nbx lr"
+        let hyp = "@ C: double hyp(double x, double y);\n.global hyp\nhyp:\nvmul.f64 d0, d0, d0\nvmla.f64 d0, d1, d1\nvsqrt.f64 d0, d0\nbx lr"
+        let noReturn = "@ C: int stuck(int x);\n.global stuck\nstuck:\nmov r0, #1"
+        expectEq "int pass" (check sumArray [ "{1, 2, 3}"; "3" ] "6" []) [ "result", true, "6 (0x6), as expected" ]
+        @ expectEq "int fail" (check sumArray [ "{1, 2, 3}"; "3" ] "7" []) [ "result", false, "expected 7 (0x7), got 6 (0x6)" ]
+        @ expectEq "nothing to check" (check sumArray [ "{1, 2, 3}"; "3" ] " " []) []
+        @ expectEq "float" (check add2 [ "0.1"; "0.2" ] "0.3" [] |> List.map (fun (_, p, _) -> p)) [ true ]
+        @ expectEq "double tolerance" (check hyp [ "3"; "4" ] "5" [] |> List.map (fun (_, p, _) -> p)) [ true ]
+        @ expectEq "double miss" (check hyp [ "3"; "4" ] "5.0001" [] |> List.map (fun (_, p, _) -> p)) [ false ]
+        @ expectEq "array pass" (check squares [ "[4]"; "4" ] "" [ "out", "{0, 1, 4, 9}" ]) [ "out", true, "{0, 1, 4, 9}, as expected" ]
+        @ expectEq "array prefix" (check squares [ "[4]"; "4" ] "" [ "out", "0, 1" ] |> List.map (fun (_, p, _) -> p)) [ true ]
+        @ expectEq "array fail" (check squares [ "[4]"; "4" ] "" [ "out", "{0, 1, 4, 8}" ]) [ "out", false, "expected {0, 1, 4, 8}, got {0, 1, 4, 9}" ]
+        @ expectEq "array too long" (check squares [ "[2]"; "2" ] "" [ "out", "{0, 1, 4}" ] |> List.map (fun (_, _, d) -> d)) [ "3 elements expected, but it has only 2" ]
+        @ expectEq "string" (check hi [ "[4]" ] "" [ "s", "\"hi\"" ] |> List.map (fun (_, p, _) -> p)) [ true ]
+        @ expectEq "did not return" (check noReturn [ "1" ] "1" [] |> List.map (fun (w, p, _) -> w, p)) [ "call", false ]
+        @ expectEq "invalid" (check sumArray [ "{1}"; "1" ] "abc" [] |> List.map (fun (_, p, _) -> p)) [ false ]
     "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with

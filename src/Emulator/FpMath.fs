@@ -450,6 +450,11 @@ let private toExponential (x : float) (digits : int) =
     x.ToString("E" + string digits, System.Globalization.CultureInfo.InvariantCulture)
 #endif
 
+/// the value as a double (exact for every format here)
+let toFloat fmt (raw : bigint) =
+    let lo, hi = wordsOfRaw (convert defaultCtl fmt F64 raw).Bits
+    toDouble lo hi
+
 /// shortest decimal text that reads back as the same value: "0.1", "-2.5e-7", "3.0", "inf", "nan"
 let format fmt (raw : bigint) =
     let neg = isNeg fmt raw
