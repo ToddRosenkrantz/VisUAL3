@@ -1167,6 +1167,140 @@ let alignTests : (string * (unit -> string list)) list = [
         | Error e -> [ e ]
 ]
 
+// ///////////////////////////// floating point core ////////////////////////////
+
+open FpMath
+
+let f32 (w : uint32) = rawOfWord w
+let f64 (hi : uint32) (lo : uint32) = rawOfWords lo hi
+let lit fmt txt = match parseFloat fmt txt with | Ok r -> r | Error e -> failwith e
+let isRes what (r : FpRes) (bits : bigint) (flags : uint32) =
+    expectEq (what + " bits") (r.Bits.ToString("X")) (bits.ToString("X")) @ expectEq (what + " flags") r.Flags flags
+
+let fpTests : (string * (unit -> string list)) list = [
+    "fp: single rounding 0.1f + 0.2f", fun () ->
+        isRes "sum" (add defaultCtl F32 (lit F32 "0.1") (lit F32 "0.2")) (f32 0x3E99999Au) IXC
+    "fp: 1/3, sqrt 2, 0.1 + 0.2 in double", fun () ->
+        isRes "1/3f" (div defaultCtl F32 (lit F32 "1") (lit F32 "3")) (f32 0x3EAAAAABu) IXC
+        @ isRes "sqrt2f" (sqrt defaultCtl F32 (lit F32 "2")) (f32 0x3FB504F3u) IXC
+        @ isRes "1/3d" (div defaultCtl F64 (lit F64 "1") (lit F64 "3")) (f64 0x3FD55555u 0x55555555u) IXC
+        @ isRes "sqrt2d" (sqrt defaultCtl F64 (lit F64 "2")) (f64 0x3FF6A09Eu 0x667F3BCDu) IXC
+        @ isRes "0.1+0.2d" (add defaultCtl F64 (lit F64 "0.1") (lit F64 "0.2")) (f64 0x3FD33333u 0x33333334u) IXC
+        @ isRes "exact" (mul defaultCtl F32 (lit F32 "1.5") (lit F32 "2")) (f32 0x40400000u) 0u
+    "fp: special values and flags", fun () ->
+        isRes "0/0" (div defaultCtl F32 (f32 0u) (f32 0u)) (f32 0x7FC00000u) IOC
+        @ isRes "1/0" (div defaultCtl F32 (lit F32 "1") (f32 0x80000000u)) (f32 0xFF800000u) DZC
+        @ isRes "inf-inf" (sub defaultCtl F64 (infBits F64 false) (infBits F64 false)) (f64 0x7FF80000u 0u) IOC
+        @ isRes "sqrt -1" (sqrt defaultCtl F32 (lit F32 "-1")) (f32 0x7FC00000u) IOC
+        @ isRes "sqrt -0" (sqrt defaultCtl F32 (f32 0x80000000u)) (f32 0x80000000u) 0u
+        @ isRes "overflow" (mul defaultCtl F32 (lit F32 "3e38") (lit F32 "10")) (f32 0x7F800000u) (OFC ||| IXC)
+        @ isRes "overflow RZ" (mul { defaultCtl with Mode = RZ } F32 (lit F32 "3e38") (lit F32 "10")) (f32 0x7F7FFFFFu) (OFC ||| IXC)
+        @ isRes "underflow" (div defaultCtl F32 (f32 1u) (lit F32 "2")) (f32 0u) (UFC ||| IXC)
+        @ isRes "subnormal exact" (div defaultCtl F32 (f32 2u) (lit F32 "2")) (f32 1u) 0u
+        @ isRes "FZ flushes input" (add { defaultCtl with FZ = true } F32 (f32 1u) (f32 0u)) (f32 0u) IDC
+        @ isRes "x + -x" (add defaultCtl F32 (lit F32 "1") (lit F32 "-1")) (f32 0u) 0u
+        @ isRes "x + -x RM" (add { defaultCtl with Mode = RM } F32 (lit F32 "1") (lit F32 "-1")) (f32 0x80000000u) 0u
+    "fp: NaN propagation", fun () ->
+        isRes "sNaN" (add defaultCtl F32 (lit F32 "1") (f32 0x7F800001u)) (f32 0x7FC00001u) IOC
+        @ isRes "first qNaN" (add defaultCtl F32 (f32 0xFFC00005u) (f32 0x7FC00009u)) (f32 0xFFC00005u) 0u
+        @ isRes "sNaN beats qNaN" (mul defaultCtl F32 (f32 0x7FC00009u) (f32 0xFF800003u)) (f32 0xFFC00003u) IOC
+        @ isRes "DN" (add { defaultCtl with DN = true } F32 (f32 0xFFC00005u) (lit F32 "1")) (f32 0x7FC00000u) 0u
+    "fp: fused multiply-add rounds once", fun () ->
+        isRes "fma" (mulAdd defaultCtl F64 (lit F64 "-1") (lit F64 "0.1") (lit F64 "10")) (f64 0x3C900000u 0u) 0u
+        @ isRes "unfused" (add defaultCtl F64 (lit F64 "-1") (mul defaultCtl F64 (lit F64 "0.1") (lit F64 "10")).Bits) (f64 0u 0u) 0u
+        @ isRes "0 x inf + qNaN" (mulAdd defaultCtl F32 (f32 0x7FC00001u) (f32 0u) (infBits F32 false)) (f32 0x7FC00000u) IOC
+    "fp: compare", fun () ->
+        expectEq "eq" (compare defaultCtl F32 false (f32 0u) (f32 0x80000000u)) (0x60000000u, 0u)
+        @ expectEq "lt" (compare defaultCtl F32 false (lit F32 "-2") (lit F32 "1")) (0x80000000u, 0u)
+        @ expectEq "gt" (compare defaultCtl F64 false (lit F64 "1e300") (lit F64 "-inf")) (0x20000000u, 0u)
+        @ expectEq "lt same sign" (compare defaultCtl F64 false (lit F64 "-3") (lit F64 "-2.5")) (0x80000000u, 0u)
+        @ expectEq "unordered" (compare defaultCtl F32 false (f32 0x7FC00000u) (f32 0u)) (0x30000000u, 0u)
+        @ expectEq "vcmpe unordered" (compare defaultCtl F32 true (f32 0x7FC00000u) (f32 0u)) (0x30000000u, IOC)
+    "fp: conversions", fun () ->
+        isRes "f32->f64" (convert defaultCtl F32 F64 (lit F32 "0.1")) (f64 0x3FB99999u 0xA0000000u) 0u
+        @ isRes "f64->f32" (convert defaultCtl F64 F32 (lit F64 "0.1")) (f32 0x3DCCCCCDu) IXC
+        @ isRes "f32->f16" (convert defaultCtl F32 F16 (lit F32 "1.5")) (rawOfWord 0x3E00u) 0u
+        @ isRes "sNaN f32->f64" (convert defaultCtl F32 F64 (f32 0x7F800001u)) (f64 0x7FF80000u 0x20000000u) IOC
+        @ expectEq "-1.5 to s32" (toFixed defaultCtl F32 true 32 0 false (lit F32 "-1.5")) (0xFFFFFFFFu, IXC)
+        @ expectEq "2.5 RN to s32" (toFixed defaultCtl F32 true 32 0 true (lit F32 "2.5")) (2u, IXC)
+        @ expectEq "3e9 to s32" (toFixed defaultCtl F64 true 32 0 false (lit F64 "3e9")) (0x7FFFFFFFu, IOC)
+        @ expectEq "3e9 to u32" (toFixed defaultCtl F64 false 32 0 false (lit F64 "3e9")) (3000000000u, 0u)
+        @ expectEq "-1 to u32" (toFixed defaultCtl F32 false 32 0 false (lit F32 "-1")) (0u, IOC)
+        @ expectEq "nan to s32" (toFixed defaultCtl F32 true 32 0 false (f32 0x7FC00000u)) (0u, IOC)
+        @ expectEq "1.25 to s16 fixed 4" (toFixed defaultCtl F32 true 16 4 false (lit F32 "-1.25")) (0xFFFFFFECu, 0u)
+        @ isRes "s32 to f32" (ofFixed defaultCtl F32 true 32 0 0xFFFFFFFFu) (lit F32 "-1") 0u
+        @ isRes "u32 to f32 inexact" (ofFixed defaultCtl F32 false 32 0 0xFFFFFFFFu) (f32 0x4F800000u) IXC
+        @ isRes "fixed 16.16 to f64" (ofFixed defaultCtl F64 true 32 16 0x00018000u) (lit F64 "1.5") 0u
+    "fp: literals and immediates", fun () ->
+        expectEq "1.5" (lit F32 "1.5") (f32 0x3FC00000u)
+        @ expectEq "0.1d" (lit F64 "0.1") (f64 0x3FB99999u 0x9999999Au)
+        @ expectEq "pi" (lit F32 "3.14159265358979") (f32 0x40490FDBu)
+        @ expectEq "hex" (lit F32 "0x1.8p1") (f32 0x40400000u)
+        @ expectEq "-0" (lit F32 "-0") (f32 0x80000000u)
+        @ expectEq "1e39" (lit F32 "1e39") (f32 0x7F800000u)
+        @ expectEq ".5" (lit F64 ".5") (lit F64 "0.5")
+        @ expectEq "bad" (parseFloat F32 "1.2.3" |> Result.isError) true
+        @ expectEq "imm 1.0" (isVfpImmediate F32 (lit F32 "1.0")) true
+        @ expectEq "imm 31" (isVfpImmediate F64 (lit F64 "31")) true
+        @ expectEq "imm 0.125" (isVfpImmediate F32 (lit F32 "0.125")) true
+        @ expectEq "imm 0.1" (isVfpImmediate F32 (lit F32 "0.1")) false
+        @ expectEq "imm 0" (isVfpImmediate F32 (lit F32 "0")) false
+        @ expectEq "imm 32" (isVfpImmediate F32 (lit F32 "32")) false
+    "fp: display", fun () ->
+        expectEq "0.1f" (format F32 (lit F32 "0.1")) "0.1"
+        @ expectEq "1/3f" (format F32 (div defaultCtl F32 (lit F32 "1") (lit F32 "3")).Bits) "0.33333334"
+        @ expectEq "0.3d" (format F64 (add defaultCtl F64 (lit F64 "0.1") (lit F64 "0.2")).Bits) "0.30000000000000004"
+        @ expectEq "3" (format F32 (lit F32 "3")) "3.0"
+        @ expectEq "123456" (format F64 (lit F64 "123456")) "123456.0"
+        @ expectEq "-1.5e-7" (format F32 (lit F32 "-1.5e-7")) "-1.5e-7"
+        @ expectEq "1e20" (format F64 (lit F64 "1e20")) "1e20"
+        @ expectEq "0.00125" (format F64 (lit F64 "0.00125")) "0.00125"
+        @ expectEq "inf" (format F32 (infBits F32 true)) "-inf"
+        @ expectEq "nan" (format F64 (defaultNaN F64)) "nan"
+        @ expectEq "-0" (format F32 (f32 0x80000000u)) "-0.0"
+#if !FABLE_COMPILER
+    "fp: random cross-check against .NET IEEE arithmetic", fun () ->
+        let rnd = System.Random 2312
+        let interesting () =
+            match rnd.Next 8 with
+            | 0 -> uint32 (rnd.Next 0x800000) ||| (if rnd.Next 2 = 0 then 0x80000000u else 0u) // subnormal
+            | 1 -> 0x3F800000u + uint32 (rnd.Next 0x1000)
+            | _ -> uint32 (rnd.Next()) ||| (if rnd.Next 2 = 0 then 0x80000000u else 0u)
+        let bitsF (x : float32) = rawOfWord (System.BitConverter.SingleToUInt32Bits x)
+        let bitsD (x : float) = let u = System.BitConverter.DoubleToUInt64Bits x in rawOfWords (uint32 u) (uint32 (u >>> 32))
+        let ofF (w : uint32) = System.BitConverter.UInt32BitsToSingle w
+        let randD () =
+            let u = (uint64 (uint32 (rnd.Next())) <<< 33) ^^^ uint64 (uint32 (rnd.Next())) ^^^ (uint64 (rnd.Next 4) <<< 62)
+            System.BitConverter.UInt64BitsToDouble u
+        let check what (mine : FpRes) (theirs : bigint) fmt =
+            if isNaN fmt theirs && isNaN fmt mine.Bits then [] // NaN payloads differ by platform
+            elif mine.Bits = theirs then []
+            else [ sprintf "%s: got %s expected %s" what (mine.Bits.ToString("X")) (theirs.ToString("X")) ]
+        [ for _ in 1 .. 4000 do
+            let a, b, c = interesting (), interesting (), interesting ()
+            let fa, fb, fc = ofF a, ofF b, ofF c
+            yield! check (sprintf "add %08X %08X" a b) (add defaultCtl F32 (f32 a) (f32 b)) (bitsF (fa + fb)) F32
+            yield! check (sprintf "sub %08X %08X" a b) (sub defaultCtl F32 (f32 a) (f32 b)) (bitsF (fa - fb)) F32
+            yield! check (sprintf "mul %08X %08X" a b) (mul defaultCtl F32 (f32 a) (f32 b)) (bitsF (fa * fb)) F32
+            yield! check (sprintf "div %08X %08X" a b) (div defaultCtl F32 (f32 a) (f32 b)) (bitsF (fa / fb)) F32
+            yield! check (sprintf "sqrt %08X" a) (sqrt defaultCtl F32 (f32 a)) (bitsF (System.MathF.Sqrt fa)) F32
+            yield! check (sprintf "fma %08X %08X %08X" a b c) (mulAdd defaultCtl F32 (f32 c) (f32 a) (f32 b)) (bitsF (System.MathF.FusedMultiplyAdd(fa, fb, fc))) F32
+            yield! check (sprintf "f32->f64 %08X" a) (convert defaultCtl F32 F64 (f32 a)) (bitsD (float fa)) F64
+            let da, db, dc = randD (), randD (), randD ()
+            let ba, bb, bc = bitsD da, bitsD db, bitsD dc
+            yield! check (sprintf "dadd %g %g" da db) (add defaultCtl F64 ba bb) (bitsD (da + db)) F64
+            yield! check (sprintf "dmul %g %g" da db) (mul defaultCtl F64 ba bb) (bitsD (da * db)) F64
+            yield! check (sprintf "ddiv %g %g" da db) (div defaultCtl F64 ba bb) (bitsD (da / db)) F64
+            yield! check (sprintf "dsqrt %g" da) (sqrt defaultCtl F64 ba) (bitsD (System.Math.Sqrt da)) F64
+            yield! check (sprintf "dfma %g %g %g" da db dc) (mulAdd defaultCtl F64 bc ba bb) (bitsD (System.Math.FusedMultiplyAdd(da, db, dc))) F64
+            yield! check (sprintf "f64->f32 %g" da) (convert defaultCtl F64 F32 ba) (bitsF (float32 da)) F32
+            let txt = da.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+            if not (System.Double.IsNaN da || System.Double.IsInfinity da) then
+                yield! expectEq ("format/parse " + txt) (parseFloat F64 (format F64 ba)) (Ok ba)
+        ] |> List.truncate 10
+#endif
+]
+
 let cTests : (string * (unit -> string list)) list = [
     "prototype: pointer and value", fun () -> protoIs "extern int sum_array(const int *a, int n);" "int sum_array(const int * a, int n)"
     "prototype: (void), unnamed, char/short/unsigned", fun () ->
@@ -1331,12 +1465,12 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    for (name, test) in alignTests @ cTests do
+    for (name, test) in fpTests @ alignTests @ cTests do
         match (try test () with e -> [ "exception: " + e.Message ]) with
         | [] -> printfn "pass %s" name
         | errs ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name (String.concat "; " errs)
-    let total = allTests.Length + alignTests.Length + cTests.Length
+    let total = allTests.Length + fpTests.Length + alignTests.Length + cTests.Length
     printfn "%d/%d passed" (total - failed) total
     if failed = 0 then 0 else 1
