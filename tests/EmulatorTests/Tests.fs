@@ -961,6 +961,22 @@ let a7Tests = [
     "mvn r2, #0\nmov r3, #5\nsmulls r0, r1, r2, r3", [ Flags (true, false, false, false) ]
     "UMULL with RdLo = RdHi rejected", "umull r0, r0, r1, r2", [ ParseError ]
 
+    "SDIV and UDIV round toward zero",
+    """    mov r1, #7
+           mov r2, #2
+           sdiv r0, r1, r2
+           mvn r3, #6
+           sdiv r4, r3, r2
+           udiv r5, r3, r2
+           mov r6, #100
+           udiv r6, r2""",
+    [ Reg (R0, 3u); Reg (R4, 0xFFFFFFFDu); Reg (R5, 0x7FFFFFFCu); Reg (R6, 50u) ]
+    "divide by zero gives 0", "mov r1, #5\nmov r2, #0\nsdiv r0, r1, r2\nudiv r3, r1, r2", [ Reg (R0, 0u); Reg (R3, 0u) ]
+    "SDIV INT_MIN by -1 gives INT_MIN", "mov r1, #0x80000000\nmvn r2, #0\nsdiv r0, r1, r2", [ Reg (R0, 0x80000000u) ]
+    "SDIV leaves the flags alone", "mov r1, #0\ncmp r1, #0\nmov r2, #3\nsdiv r0, r2, r2", [ Flags (false, true, true, false) ]
+    "SDIVS rejected", "sdivs r0, r1, r2", [ ParseError ]
+    "UDIV immediate rejected", "udiv r0, r1, #2", [ ParseError ]
+
     "NEG and NEGS", "mov r1, #7\nneg r0, r1\nnegs r2, r2", [ Reg (R0, 0xFFFFFFF9u); Reg (R2, 0u); Flags (false, true, true, false) ]
     "NOP does nothing", "mov r0, #3\nnop\nnopeq\nadd r0, #1", [ Reg (R0, 4u) ]
     "NOP takes no operands", "nop r0", [ ParseError ]

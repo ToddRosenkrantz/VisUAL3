@@ -80,6 +80,8 @@ let opDocs = [
     doc "SMULL" [ ""; "S" ] "RdHi:RdLo := Rn * Rm, signed 64-bit product. S sets N and Z" "smull{s}{cond} RdLo, RdHi, Rn, Rm" [ "smull r0, r1, r2, r3" ]
     doc "UMLAL" [ ""; "S" ] "RdHi:RdLo += Rn * Rm, unsigned 64-bit. S sets N and Z" "umlal{s}{cond} RdLo, RdHi, Rn, Rm" [ "umlal r0, r1, r2, r3" ]
     doc "SMLAL" [ ""; "S" ] "RdHi:RdLo += Rn * Rm, signed 64-bit. S sets N and Z" "smlal{s}{cond} RdLo, RdHi, Rn, Rm" [ "smlal r0, r1, r2, r3" ]
+    doc "SDIV" [ "" ] "Rd := Rn / Rm, signed, rounded toward zero. Dividing by zero gives 0" "sdiv{cond} Rd, Rn, Rm" [ "sdiv r0, r1, r2"; "sdiv r0, r2            @ r0 := r0 / r2" ]
+    doc "UDIV" [ "" ] "Rd := Rn / Rm, unsigned, rounded toward zero. Dividing by zero gives 0" "udiv{cond} Rd, Rn, Rm" [ "udiv r0, r1, r2" ]
     doc "UXTB" [ "" ] "Rd := low byte of Rm, zero-extended (Rm may be rotated first)" "uxtb{cond} Rd, Rm {, ror #8|16|24}" [ "uxtb r0, r1"; "uxtb r0, r1, ror #8   @ byte 1" ]
     doc "UXTH" [ "" ] "Rd := low halfword of Rm, zero-extended" "uxth{cond} Rd, Rm {, ror #8|16|24}" [ "uxth r0, r1"; "uxth r0, r1, ror #16  @ top half" ]
     doc "SXTB" [ "" ] "Rd := low byte of Rm, sign-extended" "sxtb{cond} Rd, Rm {, ror #8|16|24}" [ "sxtb r0, r1" ]

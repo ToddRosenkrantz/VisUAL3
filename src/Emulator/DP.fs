@@ -611,6 +611,29 @@ let makeExtendInstr (signed : bool) (bits : int) symTable (operands : string lis
                 Ok(writeBack res rd (toUFlags d.Fl) false d)
             destStall rd, (exec, noShift rm)))
 
+/// SDIV/UDIV Rd, Rn, Rm (Cortex-A7 integer divide): Rd := Rn / Rm, rounded toward zero.
+/// As on ARMv7-A: dividing by zero gives 0, and SDIV of 0x80000000 by -1 gives 0x80000000.
+let makeDivInstr (signed : bool) symTable (operands : string list) updateFlags =
+    let root = if signed then "SDIV" else "UDIV"
+    if updateFlags then noS root else
+    let operands = match operands with | [ rd; rm ] -> [ rd; rd; rm ] | ops -> ops
+    match operands with
+    | [ _; _; _ ] ->
+        parseRegs "Divide operands" operands
+        |> Result.map (fun rl ->
+            let rd, rn, rm = rl.[0], rl.[1], rl.[2]
+            let exec (d : DataPath) =
+                let n, m = d.Regs.[rn], d.Regs.[rm]
+                let res =
+                    match signed with
+                    | _ when m = 0u -> 0u
+                    | true when n = 0x80000000u && m = 0xFFFFFFFFu -> 0x80000000u
+                    | true -> uint32 (int32 n / int32 m)
+                    | false -> n / m
+                Ok(writeBack (trimUint32 res) rd (toUFlags d.Fl) false d)
+            destStall rd, (exec, noShift rm))
+    | _ -> makeDPE "destination, register, register" (String.concat "," operands)
+
 /// NEG{S} Rd, Rm: Rd := 0 - Rm (the same as RSB{S} Rd, Rm, #0)
 let makeNegInstr symTable operands updateFlags =
     match operands with
@@ -665,6 +688,9 @@ let spec = [
     "UXTH", fun s a b -> makeExtendInstr false 16 s a b
     "SXTB", fun s a b -> makeExtendInstr true 8 s a b
     "SXTH", fun s a b -> makeExtendInstr true 16 s a b
+
+    "SDIV", fun s a b -> makeDivInstr true s a b
+    "UDIV", fun s a b -> makeDivInstr false s a b
 
     "NEG", fun s a b -> makeNegInstr s a b
     "NOP", fun s a b -> makeNopInstr s a b
