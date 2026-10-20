@@ -254,6 +254,7 @@ let parseTests initStack dStart lines =
         |> snd
         |> String.splitOnWhitespace
         |> Array.toList
+        |> (function | (h : string) :: rest -> h.ToUpper() :: rest | x -> x)
         |> (function | "#TEST" :: LITERALNUMB(n, testName) :: _ ->
                          parseOneTest initStack dStart (int n) testName (List.tail chunk)
                          
@@ -266,7 +267,7 @@ let parseTests initStack dStart lines =
     |> List.indexed
     |> List.filter (snd >> (<>) "")
     |> List.tail
-    |> List.chunkAt (snd >> (fun lin -> String.startsWith "#TEST" lin || String.startsWith "#BLOCK" lin))
+    |> List.chunkAt (snd >> (fun lin -> let u = lin.ToUpper() in String.startsWith "#TEST" u || String.startsWith "#BLOCK" u))
     |> List.map (fun chunk -> parseChunk initStack dStart chunk)
     |> (fun lst ->
         let tests = List.filter (function | Ok { TAppendCode = [] } | Error _ -> true | _ -> false) lst

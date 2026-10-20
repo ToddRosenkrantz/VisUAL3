@@ -19,7 +19,7 @@ open TestLib
 let getTBWithTab() =
     Refs.fileTabList
     |> List.map (fun tab -> tab, getCode tab)
-    |> List.filter (snd >> String.trim >> String.startsWith "##TESTBENCH")
+    |> List.filter (snd >> String.trim >> String.toUpper >> String.startsWith "##TESTBENCH")
     |> function | [ tab, tb ] -> Ok(tab, tb)
                 | [] -> Error "No testbench is loaded"
                 | _ -> Error "More than one testbench is loaded"
@@ -32,7 +32,7 @@ let currentTabIsTB() =
     match Refs.currentFileTabId with
     | -1 -> false
     | tab -> getCode tab
-             |> String.trim |> String.startsWith "##TESTBENCH"
+             |> String.trim |> String.toUpper |> String.startsWith "##TESTBENCH"
 
 /// Write test Checklines to the buffer containing the testbench file
 let writeTest (test : Test) =
@@ -42,13 +42,13 @@ let writeTest (test : Test) =
             |> String.splitString [| "\n" |]
             |> Array.toList
             |> List.map String.trim
-            |> List.chunkAt (String.trim >> String.startsWith "#TEST")
+            |> List.chunkAt (String.trim >> String.toUpper >> String.startsWith "#TEST")
             |> List.collect (fun chunk ->
                         let testLst = String.splitOnWhitespace (List.head chunk) |> Array.toList
                         let testData = List.filter (String.trim >> String.startsWith ">>" >> not) (chunk |> List.tail)
                         match testLst with
-                        | "#TEST" :: LITERALNUMB(n, "") :: _ when int n = test.TNum ->
-                            (sprintf "#TEST %d" n) :: testData @ test.CheckLines
+                        | (hdr : string) :: LITERALNUMB(n, "") :: _ when hdr.ToUpper() = "#TEST" && int n = test.TNum ->
+                            List.head chunk :: testData @ test.CheckLines // keep the header as written
                         | _ -> chunk) // no change
             |> List.filter ((<>) "")
             |> String.concat "\n"
@@ -94,7 +94,9 @@ let getParsedTests dStart =
     getTBWithTab()
     |> Result.bind (
             fun (tab, tb) ->
-                String.toUpper tb
+                // keep case: GNU labels (BRANCHTOSUB, RELABEL) and appended code are case-sensitive;
+                // testbench keywords are matched case-insensitively by the parser
+                tb
                 |> String.splitString [| "\n" |]
                 |> Array.toList
                 |> parseTests initStack dStart
