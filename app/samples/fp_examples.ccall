@@ -1,0 +1,40 @@
+{
+  "format": "VisUAL3 C Call cases",
+  "version": 1,
+  "selected": "dot",
+  "functions": {
+    "dot": {
+      "current": "3 elements",
+      "cases": [
+        { "name": "3 elements", "args": { "a": "{1, 2, 3}", "b": "{4, 5, 6}", "n": "3" }, "expect": { "return": "32" } },
+        { "name": "fractions", "args": { "a": "{0.5, 0.25}", "b": "{0.1, 0.2}", "n": "2" }, "expect": { "return": "0.1" } }
+      ]
+    },
+    "average": {
+      "current": "three values",
+      "cases": [
+        { "name": "three values", "args": { "a": "{1.5, 2.5, 4}", "n": "3" }, "expect": { "return": "2.6666666666666667" } }
+      ]
+    },
+    "scale": {
+      "current": "double them",
+      "cases": [
+        { "name": "double them", "args": { "a": "{1, -2.5, 0.25}", "n": "3", "k": "2" }, "expect": { "a": "{2, -5, 0.5}" } }
+      ]
+    },
+    "hyp": {
+      "current": "3-4-5",
+      "cases": [
+        { "name": "3-4-5", "args": { "x": "3", "y": "4" }, "expect": { "return": "5" } },
+        { "name": "overflow (fails)", "args": { "x": "3e200", "y": "4e200" }, "expect": { "return": "5e200" } }
+      ]
+    },
+    "round_to_int": {
+      "current": "half to even",
+      "cases": [
+        { "name": "half to even", "args": { "x": "2.5" }, "expect": { "return": "2" } },
+        { "name": "negative", "args": { "x": "-3.7" }, "expect": { "return": "-4" } }
+      ]
+    }
+  }
+}

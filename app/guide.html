@@ -204,6 +204,7 @@
 </ul>
 
 <h2 id="vfp">Floating point (VFP)</h2>
+<p class="note"><b>Help → Load floating-point example</b> opens five small functions (dot product, average, scale in place, hypotenuse, rounding) with ready-made C Call cases and expected results. One case is meant to fail: it shows <code>x*x</code> overflowing to infinity.</p>
 <p>The floating-point unit has its own registers, shown on the <b>VFP</b> tab: 32 single-precision registers <code>s0</code>–<code>s31</code> and 32 double-precision registers <code>d0</code>–<code>d31</code>. They overlap: <code>d0</code> is <code>s0</code> (low half) and <code>s1</code> (high half), up to <code>d15</code> = <code>s30</code>, <code>s31</code>. <code>d16</code>–<code>d31</code> are separate.</p>
 <pre><span class="c">@ C: extern double average(const double *a, int n);</span>
         <span class="d">.global</span> average

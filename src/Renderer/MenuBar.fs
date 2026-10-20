@@ -111,6 +111,16 @@ let loadDemo() =
         with e -> showVexAlert (sprintf "Could not read %s: %s" sampleFileName e.Message)
         Tabs.setTabSaved tId
 
+/// Help > Load floating-point example: the sample with its saved C Call cases
+let loadFpExample() =
+    Tabs.createFileTab()
+    |> fun tId ->
+        let sample = Tests.sampleDir + "fp_examples.s"
+        try
+            loadFileIntoTab tId (fs.readTextSync sample)
+            CallCases.load tId sample
+        with e -> showVexAlert (sprintf "Could not read %s: %s" sample e.Message)
+        Tabs.setTabSaved tId
 
 
 let showQuitMessage (callBack : bool -> unit) =
@@ -305,6 +315,7 @@ let helpMenu() =
                 makeItem "Testbench file format (original VisUAL2 site)" Core.Option.None (runExtPage <| visualDocsPage "testbench")
                 menuSeparator
                 makeItem "Load demo program" Core.Option.None (interlockAction "load code" loadDemo)
+                makeItem "Load floating-point example" Core.Option.None (interlockAction "load code" loadFpExample)
                 makeCondItem (debugLevel > 0) "Run dev tools FABLE checks" Core.Option.None (interlockAction "FABLE checks" Integration.runTestbench)
                 makeCondItem (debugLevel > 0) "Run Emulator Tests" Core.Option.None (interlockAction "run tests" Tests.runAllEmulatorTests)
                 menuSeparator

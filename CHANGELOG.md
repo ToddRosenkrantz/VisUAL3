@@ -7,6 +7,7 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 ### Added
 
 - C Call: `long long`, `int64_t` and `uint64_t` parameters, results and arrays, in even/odd register pairs (r0:r1, r2:r3) or 8-byte stack slots, as AAPCS requires.
+- **Help → Load floating-point example**: five VFP functions with saved C Call cases and expected results (`app/samples/fp_examples.s` and `.ccall`).
 - C Call: expected results in a case. The expected result and the expected contents of output buffers are checked after each call, with ✔ or ✘ and the values compared; float and double match within rounding.
 - C Call: named cases of arguments for each function, chosen in a new **Case** row. They are saved with the source, as `prog.ccall` beside `prog.s`, when the `.s` is saved, and loaded when it is opened.
 
