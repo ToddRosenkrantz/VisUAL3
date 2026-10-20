@@ -133,6 +133,7 @@ let init() =
     Tabs.createFileTab() |> ignore
     printfn "Ending renderer init"
     vSettings <- checkSettings (getJSONSettings())
+    applySimulatorSettings()
     Editors.updateAllEditors false
 
     Tooltips.addFixedToolTips()

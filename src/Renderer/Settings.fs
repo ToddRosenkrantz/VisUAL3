@@ -25,6 +25,7 @@ let simulatorMaxSteps = "simulator-max-steps"
 let editorTheme = "editor-theme"
 let editorWordWrap = "editor-word-wrap"
 let editorRenderWhitespace = "editor-render-whitespace"
+let simulatorStrictAlignment = "simulator-strict-alignment"
 
 
 
@@ -54,6 +55,7 @@ let getFormSettings() =
             EditorTheme = getS editorTheme
             EditorWordWrap = getS editorWordWrap
             EditorRenderWhitespace = getS editorRenderWhitespace
+            SimulatorStrictAlignment = getS simulatorStrictAlignment
             CurrentFilePath = vSettings.CurrentFilePath
             RegisteredKey = vSettings.RegisteredKey
             OnlineFetchText = vSettings.OnlineFetchText
@@ -61,6 +63,7 @@ let getFormSettings() =
     let vs1 = checkSettings vs
     printfn "Checked settings are: %A" vs1
     vSettings <- vs1
+    applySimulatorSettings()
     printfn "Saving settings: %A" vSettings
     setJSONSettings()
 
@@ -73,8 +76,15 @@ let initFormSettings() =
     setS simulatorMaxSteps <| (uint64 vs.SimulatorMaxSteps).ToString()
     setS editorFontSize <| (uint64 vs.EditorFontSize).ToString()
     setS editorTheme vs.EditorTheme
+    let setC (name : string) (on : bool) =
+        let input = document.getElementById (name) :?> HTMLInputElement
+        input.``checked`` <- on
+    setC editorWordWrap (vs.EditorWordWrap = "on")
     setS editorWordWrap vs.EditorWordWrap
+    setC editorRenderWhitespace (vs.EditorRenderWhitespace = "all")
     setS editorRenderWhitespace vs.EditorRenderWhitespace
+    setC simulatorStrictAlignment (vs.SimulatorStrictAlignment = "on")
+    setS simulatorStrictAlignment vs.SimulatorStrictAlignment
 
 
 
@@ -159,14 +169,16 @@ let settingsMenu() =
             makeFormGroup "Font Size" <|
                 makeInputVal "number" editorFontSize (int minFontSize, 2, int maxFontSize) vSettings.EditorFontSize
             makeFormGroup "Theme" (makeInputSelect themes editorTheme vSettings.EditorTheme)
-            makeFormGroup "Word Wrap" (makeInputCheckbox editorWordWrap "on" "off" "on")
+            makeFormGroup "Word Wrap" (makeInputCheckbox editorWordWrap "on" "off" vSettings.EditorWordWrap)
             makeFormGroup "Render Whitespace Characters"
-                (makeInputCheckbox editorRenderWhitespace "all" "none" "none")
+                (makeInputCheckbox editorRenderWhitespace "all" "none" vSettings.EditorRenderWhitespace)
         ]
         DIV [] [
             ELEMENT "h4" [] [] |> INNERHTML "Simulator"
             makeFormGroup "Max Steps <br> (0 for no max) "
                 (makeInputVal "number" simulatorMaxSteps (0, 100, 10000000) vSettings.SimulatorMaxSteps)
+            makeFormGroup "Strict Alignment <br> (unaligned LDR, STR, LDRH, LDRSH, STRH stop the run)"
+                (makeInputCheckbox simulatorStrictAlignment "on" "off" vSettings.SimulatorStrictAlignment)
         ]
 
         DIV [ "after" ] []

@@ -50,6 +50,7 @@ type VSettings = {
     EditorTheme : string
     EditorWordWrap : string
     EditorRenderWhitespace : string
+    SimulatorStrictAlignment : string
     CurrentFilePath : string
     RegisteredKey : string
     OnlineFetchText : string
@@ -370,6 +371,7 @@ let mutable vSettings = {
     EditorTheme = "solarised-dark"
     EditorWordWrap = "off"
     EditorRenderWhitespace = "none"
+    SimulatorStrictAlignment = "off"
     CurrentFilePath = os.homedir()
     RegisteredKey = ""
     OnlineFetchText = ""
@@ -415,6 +417,8 @@ let checkSettings (vs : VSettings) =
                 checkNum vs.SimulatorMaxSteps 0L System.Int64.MaxValue vso.SimulatorMaxSteps
             EditorFontSize =
                 checkNum vs.EditorFontSize minFontSize maxFontSize vso.EditorFontSize
+            // settings saved before this option existed lack it
+            SimulatorStrictAlignment = if vs.SimulatorStrictAlignment = "on" then "on" else "off"
             CurrentFilePath = checkPath vs.CurrentFilePath
         }
     with
@@ -427,6 +431,10 @@ let checkSettings (vs : VSettings) =
 
 
 
+
+/// Pass simulator preferences to the emulator
+let applySimulatorSettings() =
+    Memory.strictAlignment <- (vSettings.SimulatorStrictAlignment = "on")
 
 let setJSONSettings() =
     let setSetting (name : string) (value : string) =

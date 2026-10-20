@@ -792,8 +792,33 @@ let halfwordTests = [
     "STRSB rejected", "strsb r0, [r1]", [ ParseError ]
     "STRSH rejected", "strsh r0, [r1]", [ ParseError ]
     "LDRSB has no =value form", "ldrsb r0, =5", [ ParseError ]
-    "misaligned LDRH stops the run", "ldr r0, =d\nldrh r1, [r0, #1]\n.data\nd: .word 0", [ Expect.RunError ]
-    "misaligned STRH stops the run", "ldr r0, =d\nstrh r1, [r0, #3]\n.data\nd: .word 0", [ Expect.RunError ]
+]
+
+/// ARMv7 Linux allows unaligned LDR, STR, LDRH, LDRSH and STRH (SCTLR.A = 0)
+let unalignedTests = [
+    "unaligned LDR, LDRH and LDRSH read little-endian bytes across words",
+    """    ldr r0, =d
+           ldr r1, [r0, #1]
+           ldrh r2, [r0, #3]
+           ldrsh r3, [r0, #7]
+           .data
+       d:  .word 0x44332211, 0x88776655, 0xFF""",
+    [ Reg (R1, 0x55443322u); Reg (R2, 0x5544u); Reg (R3, 0xFFFFFF88u) ]
+
+    "unaligned STR and STRH write little-endian bytes across words",
+    """    ldr r0, =buf
+           ldr r1, =0xAABBCCDD
+           str r1, [r0, #3]
+           ldr r2, [r0]
+           ldr r3, [r0, #4]
+           strh r1, [r0, #9]
+           ldr r4, [r0, #8]
+           .data
+       buf: .space 12""",
+    [ Reg (R2, 0xDD000000u); Reg (R3, 0x00AABBCCu); Reg (R4, 0x00CCDD00u) ]
+
+    "LDM from an unaligned address stops the run", "ldr r0, =d + 2\nldmia r0, {r1, r2}\n.data\nd: .word 1, 2, 3", [ Expect.RunError ]
+    "PUSH with an unaligned SP stops the run", "sub sp, sp, #2\npush {r0}", [ Expect.RunError ]
 ]
 
 let addressingTests = [
@@ -875,7 +900,7 @@ let addressingTests = [
     "halfword RRX offset rejected", "ldrh r0, [r1, r2, rrx]", [ ParseError ]
 ]
 
-let allTests = tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
+let allTests = unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 
@@ -945,6 +970,35 @@ sum_array:
     bne 1b
     mov r0, r2
     bx lr"""
+
+/// cycles taken to run code to completion
+let cycles (code : string) =
+    let lim = reLoadProgram (srcLines code)
+    let fl = { N = false; Z = false; C = false; V = false }
+    let ri = asmStep 100000L (getRunInfoFromImageWithInits NoBreak lim initialRegMap fl Map.empty lim.Mem)
+    ri.CyclesDone
+
+/// run code with strict alignment on
+let runStrict (code : string) =
+    Memory.strictAlignment <- true
+    try run code finally Memory.strictAlignment <- false
+
+let alignTests : (string * (unit -> string list)) list = [
+    "unaligned LDR takes one extra cycle", fun () ->
+        let aligned = cycles "ldr r0, =d\nldr r1, [r0]\n.data\nd: .word 1, 2"
+        let unaligned = cycles "ldr r0, =d\nldr r1, [r0, #1]\n.data\nd: .word 1, 2"
+        expectEq "extra cycles" (unaligned - aligned) 1L
+    "strict alignment: unaligned LDR, LDRH, STR, STRH stop the run", fun () ->
+        [ "ldr r1, [r0, #1]"; "ldrh r1, [r0, #1]"; "ldrsh r1, [r0, #3]"; "str r1, [r0, #2]"; "strh r1, [r0, #1]" ]
+        |> List.collect (fun ins ->
+            match runStrict ("ldr r0, =d\n" + ins + "\n.data\nd: .word 0, 0") with
+            | Error e when e.StartsWith "run error" -> []
+            | r -> [ sprintf "%s: expected a run error, got %A" ins r ])
+    "strict alignment: aligned and byte accesses still work", fun () ->
+        match runStrict "ldr r0, =d\nldrh r1, [r0, #2]\nldrb r2, [r0, #1]\nldr r3, [r0]\n.data\nd: .word 0x44332211" with
+        | Ok dp -> expectEq "r1, r2, r3" (dp.Regs.[R1], dp.Regs.[R2], dp.Regs.[R3]) (0x4433u, 0x22u, 0x44332211u)
+        | Error e -> [ e ]
+]
 
 let cTests : (string * (unit -> string list)) list = [
     "prototype: pointer and value", fun () -> protoIs "extern int sum_array(const int *a, int n);" "int sum_array(const int * a, int n)"
@@ -1110,12 +1164,12 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    for (name, test) in cTests do
+    for (name, test) in alignTests @ cTests do
         match (try test () with e -> [ "exception: " + e.Message ]) with
         | [] -> printfn "pass %s" name
         | errs ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name (String.concat "; " errs)
-    let total = allTests.Length + cTests.Length
+    let total = allTests.Length + alignTests.Length + cTests.Length
     printfn "%d/%d passed" (total - failed) total
     if failed = 0 then 0 else 1

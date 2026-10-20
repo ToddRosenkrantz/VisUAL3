@@ -76,6 +76,20 @@ module Memory
         | LDREQUAL of RName * uint32
 
 
+    /// Strict alignment (like ARMv7 with SCTLR.A set): unaligned LDR, STR, LDRH, LDRSH and STRH
+    /// stop with an error. Off by default, as on ARMv7 Linux, where they work and take extra cycles.
+    /// Set from the user's preferences.
+    let mutable strictAlignment = false
+
+    /// Unaligned single-register accesses since the last takeUnalignedCycles call (one extra cycle each)
+    let mutable private unalignedAccesses = 0L
+
+    /// Extra cycles for unaligned accesses in the step just executed; resets the count
+    let takeUnalignedCycles () =
+        let n = unalignedAccesses
+        unalignedAccesses <- 0L
+        n
+
     let memSpecSingle = {
         InstrC = MEM
         Roots = [ "LDR"; "STR" ]
@@ -441,21 +455,47 @@ module Memory
         getDataMemWord wordA dp
         |> Result.map (fun w -> (w >>> bitOffset) &&& 0xFFu)
 
-    /// Load a halfword (little-endian): the address must be divisible by 2
+    let private strictError (kind : string) (ef : uint32) =
+        ``Run time error`` (ef, sprintf "unaligned %s access at 0x%X: strict alignment is on (Edit > Preferences)" kind ef) |> Error
+
+    /// Read n bytes from any address as one little-endian value
+    let private loadBytes (n : int) (ef : uint32) (dp : DataPath) =
+        let rec go i acc =
+            if i = n then Ok acc
+            else getDataMemByte (ef + uint32 i) dp |> Result.bind (fun b -> go (i + 1) (acc ||| (b <<< (8 * i))))
+        go 0 0u
+
+    /// Write the low n bytes of value to any address, little-endian
+    let private storeBytes (n : int) (value : uint32) (ef : uint32) (dp : DataPath) =
+        let rec go i dp =
+            if i = n then Ok dp
+            else updateMemByte ((value >>> (8 * i)) &&& 0xFFu |> byte) (ef + uint32 i) dp |> Result.bind (go (i + 1))
+        go 0 dp
+
+    /// Load a word for LDR: any address on ARMv7 unless strict alignment is on
+    let getDataMemWordAny (ef : uint32) (dp : DataPath) =
+        if ef % 4u = 0u then getDataMemWord ef dp
+        elif strictAlignment then strictError "word" ef
+        else loadBytes 4 ef dp
+
+    /// Load a halfword (little-endian): any address on ARMv7 unless strict alignment is on
     let getDataMemHalf (ef : uint32) (dp : DataPath) =
-        if ef % 2u <> 0u then
-            ``Run time error`` (ef, (sprintf "halfword address %d must be divisible by 2" ef)) |> Error
-        else
+        if ef % 2u = 0u then
             getDataMemWord (ef &&& 0xFFFFFFFCu) dp
             |> Result.map (fun w -> (w >>> int ((ef &&& 2u) * 8u)) &&& 0xFFFFu)
+        elif strictAlignment then strictError "halfword" ef
+        else loadBytes 2 ef dp
 
-    /// Store the low halfword of value (little-endian): the address must be divisible by 2
+    /// Store a word for STR: any address on ARMv7 unless strict alignment is on
+    let updateMemWordAny (value : uint32) (ef : uint32) (dp : DataPath) =
+        if ef % 4u = 0u then updateMemData (Dat value) ef dp
+        elif strictAlignment then strictError "word" ef
+        else storeBytes 4 value ef dp
+
+    /// Store the low halfword of value (little-endian): any address unless strict alignment is on
     let updateMemHalf (value : uint32) (ef : uint32) (dp : DataPath) =
-        if ef % 2u <> 0u then
-            ``Run time error`` (ef, (sprintf "halfword address %d must be divisible by 2" ef)) |> Error
-        else
-            updateMemByte (value &&& 0xFFu |> byte) ef dp
-            |> Result.bind (updateMemByte ((value >>> 8) &&& 0xFFu |> byte) (ef + 1u))
+        if ef % 2u <> 0u && strictAlignment then strictError "halfword" ef
+        else storeBytes 2 value ef dp
 
     /// Sign-extend the low 8 or 16 bits of a loaded value
     let signExtend (size : MSize) (v : uint32) =
@@ -473,19 +513,21 @@ module Memory
             | PreIndex -> uint32 addr
             | PostIndex -> rbv
         //printfn "Executing Rb=%A(%x) addr = %x  ef = %x" ins.Rb dp.Regs.[ins.Rb] addr ef
+        let unaligned = match ins.MemSize with | MWord -> ef % 4u <> 0u | MHalf -> ef % 2u <> 0u | MByte -> false
+        if unaligned && not strictAlignment then unalignedAccesses <- unalignedAccesses + 1L
         dp
         |> updateReg (uint32 (if ins.MemMode = NoIndex then (match ins.Rb with | R15 -> rbv - 4u | _ -> rbv) else addr >>> 0)) ins.Rb
         |> (fun dp ->
                 match ins.LSType with
                 | LOAD ->
                      match ins.MemSize with
-                     | MWord -> (getDataMemWord ef dp)
+                     | MWord -> (getDataMemWordAny ef dp)
                      | MByte -> (getDataMemByte ef dp)
                      | MHalf -> (getDataMemHalf ef dp)
                      |> Result.map (fun dat -> updateReg (if ins.Signed then signExtend ins.MemSize dat else dat) ins.Rd dp)
                 | STORE ->
                     match ins.MemSize with
-                    | MWord -> updateMemData (Dat dp.Regs.[ins.Rd]) ef dp
+                    | MWord -> updateMemWordAny dp.Regs.[ins.Rd] ef dp
                     | MByte -> updateMemByte (dp.Regs.[ins.Rd] |> byte) ef dp
                     | MHalf -> updateMemHalf dp.Regs.[ins.Rd] ef dp)
 
@@ -539,10 +581,17 @@ module Memory
             setMultMem (regContentsList |> List.map Dat) lst cpuData
             |> Result.map (fun dp -> setReg rn ((dp.Regs.[rn] + uint32 rEnd) &&& 0xFFFFFFFFu) dp)
 
+        /// ARMv7 always requires a word-aligned address for LDM, STM, PUSH and POP
+        let checkMultAligned (operands : InstrMemMult) f =
+            let a = cpuData.Regs.[operands.Rn]
+            if a % 4u <> 0u then
+                ``Run time error`` (a, sprintf "LDM, STM, PUSH and POP need a word-aligned address (ARMv7 requires it): %A = 0x%X" operands.Rn a) |> Error
+            else f ()
+
         match instr with
         | LDR ins | STR ins -> executeLDRSTR ins cpuData
         | LDM operands ->
-            executeLDM operands.WB operands.suff operands.Rn operands.rList cpuData
+            checkMultAligned operands (fun () -> executeLDM operands.WB operands.suff operands.Rn operands.rList cpuData)
         | STM operands ->
-            executeSTM operands.WB operands.suff operands.Rn operands.rList cpuData
+            checkMultAligned operands (fun () -> executeSTM operands.WB operands.suff operands.Rn operands.rList cpuData)
         | LDREQUAL(rn, loadVal) -> setReg rn loadVal cpuData |> Ok

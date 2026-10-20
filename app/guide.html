@@ -146,7 +146,7 @@
   <tr><td class="mono">[r1, r2, lsl #2]</td><td>r1 + r2 × 4: element r2 of a word array. The shift can be <code>lsl #0–31</code>, <code>lsr #1–32</code>, <code>asr #1–32</code>, <code>ror #1–31</code> or <code>rrx</code>.</td></tr>
   <tr><td class="mono">=value</td><td><code>ldr r0, =0x12345678</code> or <code>ldr r0, =label</code> loads any 32-bit value.</td></tr>
 </table>
-<p>An immediate offset can be any value from −4095 to 4095. Word loads and stores need a final address that is a multiple of 4, halfword ones a multiple of 2.</p>
+<p>An immediate offset can be any value from −4095 to 4095. As on ARMv7 Linux, <code>ldr</code>, <code>str</code>, <code>ldrh</code>, <code>ldrsh</code> and <code>strh</code> work at any address: an unaligned access reads or writes the bytes in little-endian order and takes one extra cycle. With <b>Strict alignment</b> turned on in <b>Edit → Preferences</b>, an unaligned word or halfword access stops the run instead, as on a core that traps alignment faults. <code>ldm</code>, <code>stm</code>, <code>push</code> and <code>pop</code> always need a word-aligned address.</p>
 <h3>Bytes and halfwords</h3>
 <table>
   <tr><th>Instruction</th><th>Does</th></tr>

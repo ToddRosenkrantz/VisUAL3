@@ -564,7 +564,7 @@ let asmStep (numSteps : int64) (ri : RunInfo) =
                 lastDP <- Some dp; dp <- dp', uF'; stepsDone <- stepsDone + 1L;
             | Result.Error EXIT -> running <- false; state <- PSExit;
             | Result.Error e -> running <- false; state <- PSError e; lastDP <- Some dp;
-            cyclesDone <- cyclesDone + match ti with | _, Some { Cycles = cyc } -> cyc + 1L | _, None -> 1L
+            cyclesDone <- cyclesDone + (match ti with | _, Some { Cycles = cyc } -> cyc + 1L | _, None -> 1L) + Memory.takeUnalignedCycles ()
             match ti, stepRes, lastDP with
             | (lNum, Some ci), Result.Ok(dp', _), Some(dp, _) ->
                 coverage <- Set.add lNum coverage
