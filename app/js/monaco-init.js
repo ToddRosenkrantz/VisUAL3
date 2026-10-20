@@ -360,8 +360,14 @@ amdRequire(['vs/editor/editor.main'], function () {
 
   var mevent = new CustomEvent("monaco-ready", { "detail": "ready now!" });
 
-  // Dispatch/Trigger/Fire the event
-  document.dispatchEvent(mevent);
+  // Monaco measures character widths when an editor is created. The editor font (fira-code,
+  // a web font in photon.css) is only downloaded on first use, so without this Monaco measured
+  // the fallback font and the cursor drifted away from the text (by 60px at column 80 on Windows).
+  // Load the font first; re-measure if any font finishes loading later.
+  document.fonts.addEventListener('loadingdone', function () { monaco.editor.remeasureFonts(); });
+  Promise.all(['normal 16px "fira-code"', 'bold 16px "fira-code"'].map(function (f) { return document.fonts.load(f); }))
+    .catch(function (e) { console.log('Editor font did not load: ' + e); })
+    .then(function () { document.dispatchEvent(mevent); });
 });
 
 
