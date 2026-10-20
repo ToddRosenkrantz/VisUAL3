@@ -6,13 +6,15 @@ VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLond
 
 ## Running it
 
-Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.2-dev](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.2-dev)), or [build it](#packaging). [CHANGELOG.md](CHANGELOG.md) lists every significant change since VisUAL2. Unzip it anywhere and run:
+Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.2-dev](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.2-dev)), or [build it](#packaging). Unzip it anywhere and run:
 
 | Platform | Run |
 |---|---|
 | Windows | `VisUAL3-win32-x64\VisUAL3.exe` |
 | Linux | `VisUAL3-linux-x64/VisUAL3` |
 | macOS | `VisUAL3-darwin-arm64/VisUAL3.app` (Apple silicon) or `VisUAL3-darwin-x64/VisUAL3.app` (Intel) |
+
+[CHANGELOG.md](CHANGELOG.md) lists every significant change since VisUAL2.
 
 The builds are not code-signed. On Windows choose **More info → Run anyway** at the SmartScreen warning; on macOS right-click the app and choose **Open** the first time.
 
