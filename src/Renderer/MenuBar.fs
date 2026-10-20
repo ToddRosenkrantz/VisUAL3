@@ -286,9 +286,12 @@ let helpMenu() =
                     printfn "Directory is:%s" (Stats.dirOfSettings())
                     showVexAlert (sprintf "<h4>VisUAL3 ARMv7 emulator v%s</h4>" Refs.appVersion +
                                 "GNU as syntax, no FPU, C function calls (AAPCS).<br><br>" +
-                                "Based on VisUAL2 (c) 2018 Imperial College London. Acknowledgements: Salman Arif (VisUAL), " +
-                                "HLP 2018 class (F# reimplementation), with special mention to Thomas Carrotti, " +
-                                "Lorenzo Silvestri, and HLP Team 10"))
+                                "Copyright (c) 2026 Todd Rosenkrantz. Based on VisUAL2, copyright (c) 2018-2019 " +
+                                "Dr T. Clarke, Imperial College London, and the 2018 HLP students who wrote and tested it, " +
+                                "including Angelos Filos, Lorenzo Silvestri, Thomas Carotti, Douglas Brion and Christopher Macca. " +
+                                "VisUAL2 was inspired by Salman Arif's VisUAL.<br><br>" +
+                                "VisUAL3 is free software under the GNU General Public License version 3, " +
+                                "with no warranty. See LICENSE and CREDITS.md in the source repository."))
             ])
 
 
