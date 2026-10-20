@@ -115,7 +115,7 @@
   <tr><td>Long multiply (64-bit result)</td><td class="mono">umull smull umlal smlal</td><td class="mono">umull r0, r1, r2, r3</td></tr>
   <tr><td>Extend byte or halfword</td><td class="mono">uxtb uxth sxtb sxth</td><td class="mono">sxtb r0, r1</td></tr>
   <tr><td>Do nothing</td><td class="mono">nop</td><td class="mono">nop</td></tr>
-  <tr><td>Load and store</td><td class="mono">ldr str ldrb strb ldrh strh ldrsb ldrsh</td><td class="mono">ldr r0, [r1, #4]</td></tr>
+  <tr><td>Load and store</td><td class="mono">ldr str ldrb strb ldrh strh ldrsb ldrsh ldrd strd</td><td class="mono">ldr r0, [r1, #4]</td></tr>
   <tr><td>Several registers</td><td class="mono">ldm stm push pop</td><td class="mono">push {r4, lr}</td></tr>
   <tr><td>Branch</td><td class="mono">b bl bx</td><td class="mono">bl sum_array</td></tr>
   <tr><td>Address of a label</td><td class="mono">adr, ldr Rd, =label</td><td class="mono">ldr r0, =table</td></tr>
@@ -162,6 +162,7 @@
   <tr><td class="mono">strb / strh</td><td>Store the low byte / halfword of the register. There is no signed store.</td></tr>
 </table>
 <p><code>ldrh</code>, <code>strh</code>, <code>ldrsb</code> and <code>ldrsh</code> take a smaller set of addresses than <code>ldr</code> and <code>ldrb</code>: an immediate offset from −255 to 255, or a register offset with no shift (<code>[r1, r2]</code> or <code>[r1, -r2]</code>, not <code>[r1, r2, lsl #1]</code>). Pre- and post-indexing work as usual.</p>
+<p><code>ldrd</code> and <code>strd</code> load or store two words: the first register gets the word at the address and the second gets the word after it. The registers must be an even/odd pair other than <code>lr</code> (r0/r1, r2/r3, … r10/r11); the second may be left out: <code>ldrd r4, [r0]</code> means <code>ldrd r4, r5, [r0]</code>. They take the same addresses as <code>ldrh</code>, and always need a word-aligned address. <code>strd r4, r5, [sp, #-8]!</code> saves a pair on the stack.</p>
 
 <h2 id="conditions">Condition codes</h2>
 <table>
@@ -243,7 +244,7 @@
   <li>Floating point (VFP/NEON instructions, <code>float</code> and <code>double</code>): the emulated core has no FPU.</li>
   <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
-  <li>Doubleword loads and stores (<code>ldrd</code>, <code>strd</code>), <code>movw</code>/<code>movt</code>, <code>mls</code>, <code>umull</code>/<code>smull</code>, <code>sdiv</code>/<code>udiv</code>, <code>clz</code> and the extend instructions (<code>uxtb</code> …).</li>
+  <li>Bit-field and bit-order instructions (<code>ubfx</code>, <code>sbfx</code>, <code>bfi</code>, <code>bfc</code>, <code>clz</code>, <code>rev</code>, <code>rbit</code>), and exclusive loads and stores (<code>ldrex</code>, <code>strex</code>).</li>
   <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
   <li>In C calls: 64-bit types (<code>long long</code>), structs, variadic functions and function pointers.</li>
 </ul>

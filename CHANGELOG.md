@@ -2,6 +2,16 @@
 
 Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019), the version it was forked from. Newest first. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases). Older development releases are removed when a new one is published; their entries stay here.
 
+## Unreleased
+
+### Added
+
+- `ldrd` and `strd`: two words into or from an even/odd register pair (r0/r1 … r10/r11), with the second register optional. They take the same addresses as `ldrh` and always need a word-aligned address.
+
+### Fixed
+
+- The guide's "Not supported" list no longer names instructions that 3.0.2-dev added.
+
 ## 3.0.2-dev (2026-10-20)
 
 The emulated core is now a Cortex-A7-class ARMv7-A processor.

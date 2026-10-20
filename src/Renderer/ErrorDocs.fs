@@ -86,14 +86,14 @@ let opDocs = [
     doc "UXTH" [ "" ] "Rd := low halfword of Rm, zero-extended" "uxth{cond} Rd, Rm {, ror #8|16|24}" [ "uxth r0, r1"; "uxth r0, r1, ror #16  @ top half" ]
     doc "SXTB" [ "" ] "Rd := low byte of Rm, sign-extended" "sxtb{cond} Rd, Rm {, ror #8|16|24}" [ "sxtb r0, r1" ]
     doc "SXTH" [ "" ] "Rd := low halfword of Rm, sign-extended" "sxth{cond} Rd, Rm {, ror #8|16|24}" [ "sxth r0, r1" ]
-    doc "LDR" [ ""; "B"; "H"; "SB"; "SH" ]
-        "load a word into Rd; b/h = byte/halfword (zero-extended), sb/sh = signed byte/halfword (sign-extended)"
-        "ldr{b|h|sb|sh}{cond} Rd, address   or   ldr Rd, =value"
+    doc "LDR" [ ""; "B"; "H"; "SB"; "SH"; "D" ]
+        "load a word into Rd; b/h = byte/halfword (zero-extended), sb/sh = signed byte/halfword (sign-extended), d = two words into an even/odd register pair"
+        "ldr{b|h|sb|sh|d}{cond} Rd, address   or   ldr Rd, =value"
         [ "ldr r0, [r1]"; "ldr r0, [r1, #4]"; "ldr r0, [r1], #4       @ post-indexed"; "ldr r0, [r1, #-8]!     @ pre-indexed, write back"
           "ldr r0, [r1, r2, lsl #2]"; "ldr r0, [r1, -r2]      @ register offset subtracted"; "ldrb r3, [r0, #1]"; "ldrsh r2, [r0, #2]     @ h/sb/sh: offset -255..255"
-          "ldrh r2, [r0, r1]      @ h/sb/sh: register offset, no shift"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
-    doc "STR" [ ""; "B"; "H" ] "store a word from Rd into memory; b/h = its low byte/halfword" "str{b|h}{cond} Rd, address"
-        [ "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "strh r2, [r3, #2]      @ h: offset -255..255"; "str r0, [sp, #-4]!" ]
+          "ldrh r2, [r0, r1]      @ h/sb/sh: register offset, no shift"; "ldrd r4, r5, [r0, #8]  @ r4 = word at r0+8, r5 = the next word"; "ldr r0, =table         @ address of a label"; "ldr r0, =0x12345678" ]
+    doc "STR" [ ""; "B"; "H"; "D" ] "store a word from Rd into memory; b/h = its low byte/halfword; d = an even/odd register pair as two words" "str{b|h|d}{cond} Rd, address"
+        [ "strd r4, r5, [sp, #-8]! @ save a register pair"; "str r0, [r1]"; "str r0, [r1, #4]!"; "strb r2, [r3], #1"; "strh r2, [r3, #2]      @ h: offset -255..255"; "str r0, [sp, #-4]!" ]
     doc "LDM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "load several registers from consecutive words (lowest register at lowest address)"
         "ldm{mode}{cond} Rn{!}, {register list}" [ "ldm r0, {r1-r3}"; "ldmia r0!, {r4, r5}"; "ldmfd sp!, {r4, pc}" ]
     doc "STM" [ ""; "IA"; "IB"; "DA"; "DB"; "FD"; "ED"; "FA"; "EA" ] "store several registers to consecutive words (lowest register at lowest address)"

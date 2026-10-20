@@ -38,9 +38,9 @@ table:  .word   10, 20, 30, -5
 ```
 
 - **Syntax:** GNU `as`, unified ARM syntax. Labels end with `:`, comments are `@`, `//` or `/* */`, and `;` separates statements. Directives include `.text`/`.data`/`.bss`, `.word`/`.hword`/`.byte`, `.ascii`/`.asciz`, `.space`, `.align` and `.equ`. gcc boilerplate such as `.type`, `.size`, `.syntax unified` and `.cfi_*` is accepted.
-- **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, `sdiv`/`udiv`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, `ldr`/`str` with `b` and `h` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx` and `adr`, all with condition codes.
+- **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, `sdiv`/`udiv`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, `ldr`/`str` with `b`, `h` and `d` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx` and `adr`, all with condition codes.
 - **Running:** execution starts at the first instruction in `.text`. It ends when execution runs past the last instruction, or when the code returns with `bx lr`. SP starts at `0xFF000000`, and LR at a return address that stops the run.
-- **Not supported:** floating point (the core has no FPU), Thumb, `svc`/system calls, `blx`, doubleword loads and stores (`ldrd`/`strd`), and macros.
+- **Not supported:** floating point (the core has no FPU), Thumb, `svc`/system calls, `blx`, bit-field instructions (`ubfx`, `bfi` …), `clz`/`rev`, exclusive loads and stores, and macros.
 
 **Help → Assembly language guide** (F1) in the app is the full reference. Pointing at a line marked as an error shows help for that instruction or directive.
 

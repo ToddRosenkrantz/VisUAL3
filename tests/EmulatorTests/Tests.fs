@@ -982,7 +982,49 @@ let a7Tests = [
     "NOP takes no operands", "nop r0", [ ParseError ]
 ]
 
-let allTests = a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
+/// LDRD and STRD: an even/odd register pair, addressing mode 3, word-aligned address
+let doubleTests = [
+    "LDRD loads a register pair, low word first",
+    """    ldr r2, =d
+           ldrd r0, r1, [r2]
+           ldrd r4, [r2, #4]
+           .data
+       d:  .word 0x11111111, 0x22222222, 0x33333333""",
+    [ Reg (R0, 0x11111111u); Reg (R1, 0x22222222u); Reg (R4, 0x22222222u); Reg (R5, 0x33333333u) ]
+    "STRD stores a register pair",
+    """    ldr r2, =buf
+           ldr r4, =0xAAAA0001
+           ldr r5, =0xBBBB0002
+           strd r4, r5, [r2, #4]
+           ldr r0, [r2, #4]
+           ldr r1, [r2, #8]
+           ldr r3, [r2]
+           .data
+       buf: .space 12""",
+    [ Reg (R0, 0xAAAA0001u); Reg (R1, 0xBBBB0002u); Reg (R3, 0u) ]
+    "STRD and LDRD with pre-index write-back and post-index (saving a pair on the stack)",
+    """    mov r4, #4
+           mov r5, #5
+           strd r4, r5, [sp, #-8]!
+           mov r6, sp
+           mov r4, #0
+           mov r5, #0
+           ldrd r4, r5, [sp], #8""",
+    [ Reg (R4, 4u); Reg (R5, 5u); Reg (R6, 0xFEFFFFF8u); Reg (R13, 0xFF000000u) ]
+    "LDRD with a register offset", "ldr r2, =d\nmov r3, #8\nldrd r0, r1, [r2, -r3]\n.data\n.word 7, 9\nd: .word 0", [ Reg (R0, 7u); Reg (R1, 9u) ]
+    "conditional LDRD", "ldr r2, =d\ncmp r2, #0\nldrdeq r0, [r2]\nldrdne r4, [r2]\n.data\nd: .word 1, 2", [ Reg (R0, 0u); Reg (R4, 1u); Reg (R5, 2u) ]
+    "LDRD odd first register rejected", "ldrd r1, r2, [r0]", [ ParseError ]
+    "LDRD non-consecutive pair rejected", "ldrd r0, r2, [r3]", [ ParseError ]
+    "LDRD lr pair rejected", "ldrd lr, pc, [r0]", [ ParseError ]
+    "LDRD offset 256 rejected", "ldrd r0, r1, [r2, #256]", [ ParseError ]
+    "LDRD shifted register offset rejected", "ldrd r0, r1, [r2, r3, lsl #2]", [ ParseError ]
+    "LDRD write-back to a loaded register rejected", "ldrd r0, r1, [r1, #8]!", [ ParseError ]
+    "LDRSD rejected", "ldrsd r0, r1, [r2]", [ ParseError ]
+    "LDRD from an unaligned address stops the run", "ldr r2, =d + 2\nldrd r0, r1, [r2]\n.data\nd: .word 1, 2, 3", [ Expect.RunError ]
+    "STRD to an unaligned address stops the run", "ldr r2, =d + 1\nstrd r0, r1, [r2]\n.data\nd: .word 1, 2, 3", [ Expect.RunError ]
+]
+
+let allTests = doubleTests @ a7Tests @ unalignedTests @ tests @ mulTests @ shiftTests @ noFloatTests @ stackTests @ pushPreDecTests @ labelTests @ gnuSyntaxTests @ branchTests @ topLevelReturnTests @ halfwordTests @ addressingTests
 
 // ///////////////////////////// C calls ///////////////////////////////////////
 

@@ -39,8 +39,8 @@ amdRequire(['vs/editor/editor.main'], function () {
         'LSL', 'LSR', 'ASR', 'ROR', 'RRX', 'MUL', 'MLA', 'CMP', 'CMN', 'TST', 'TEQ',
         'UMULL', 'SMULL', 'UMLAL', 'SMLAL', 'NEG'], ['', 'S']],
       [['MOVW', 'MOVT', 'MLS', 'SDIV', 'UDIV', 'UXTB', 'UXTH', 'SXTB', 'SXTH', 'NOP'], ['']],
-      [['LDR'], ['', 'B', 'H', 'SB', 'SH']],
-      [['STR'], ['', 'B', 'H']],
+      [['LDR'], ['', 'B', 'H', 'SB', 'SH', 'D']],
+      [['STR'], ['', 'B', 'H', 'D']],
       [['LDM', 'STM'], ['', 'IA', 'IB', 'DA', 'DB', 'FD', 'ED', 'FA', 'EA']],
       [['PUSH', 'POP', 'B', 'BL', 'BX', 'ADR'], ['']]
     ];

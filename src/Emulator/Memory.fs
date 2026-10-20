@@ -18,6 +18,7 @@ module Memory
         | MWord /// LDR, STR
         | MByte /// LDRB, LDRSB, STRB
         | MHalf /// LDRH, LDRSH, STRH
+        | MDouble /// LDRD, STRD: two words, into or from an even/odd register pair
 
     type LSType =
         | LOAD /// LDR,LDRB
@@ -94,7 +95,7 @@ module Memory
         InstrC = MEM
         Roots = [ "LDR"; "STR" ]
         // STRSB and STRSH are rejected by the parser: stores are never signed
-        Suffixes = [ ""; "B"; "H"; "SB"; "SH" ]
+        Suffixes = [ ""; "B"; "H"; "SB"; "SH"; "D" ]
     }
 
     let memSpecMultiple = {
@@ -183,10 +184,11 @@ module Memory
                 | "H" -> MHalf, false
                 | "SB" -> MByte, true
                 | "SH" -> MHalf, true
+                | "D" -> MDouble, false
                 | _ -> failwithf "What? Suffix '%s' on LDR or STR is not possible" uSuffix
             /// LDRH, LDRSB, LDRSH and STRH use ARMv7's addressing mode 3:
             /// immediate offsets up to 255, register offsets without a shift
-            let mode3 = mSize = MHalf || signed
+            let mode3 = mSize = MHalf || mSize = MDouble || signed
 
             /// matches "!" or "" at end of memory instruction
             /// removes initial whitespace
@@ -287,6 +289,20 @@ module Memory
             | _ when lsType = STORE && signed ->
                 makeParseError (sprintf "STRB or STRH: STR%s does not exist, because a store is never signed" uSuffix) ls.OpCode ""
             | REGMATCH(rd, (REMOVEPREFIX "," txt)) ->
+                /// LDRD/STRD: the second register may be written out, and must then be the next one
+                let txt, pairCheck =
+                    let rdNum = rd.RegNum
+                    let check (rt2 : RName option) =
+                        match rt2 with
+                        | _ when mSize <> MDouble -> Ok()
+                        | _ when rdNum % 2 <> 0 || rd = R14 ->
+                            makeFormatError (sprintf "%s%s needs an even first register other than lr: r0, r2, ... r10" uRoot uSuffix) (rd.ToString()) ""
+                        | Some r2 when r2.RegNum <> rdNum + 1 ->
+                            makeFormatError (sprintf "the second register of %s%s must be the next one after the first: %A, %A" uRoot uSuffix rd (register (rdNum + 1))) (r2.ToString()) ""
+                        | _ -> Ok()
+                    match mSize, txt with
+                    | MDouble, REGMATCH(r2, (REMOVEPREFIX "," rest)) -> rest, check (Some r2)
+                    | _ -> txt, check None
                 match PreIndex, PostIndex, txt with
                 | indexType, _, BRACKETED '[' ']' (REGMATCH(rb, (OFFSET(spf, ""))), WRITEBACK w)
                 | _, indexType, BRACKETED '[' ']' ((REGMATCH(rb, ""), OFFSET(spf, WRITEBACK w))) ->
@@ -295,7 +311,14 @@ module Memory
                         | false, PreIndex -> Ok NoIndex
                         | true, PostIndex -> makeParseError "Valid addressing mode" (" '!' is not valid in post-increment addressing:'" + txt + "'") "ea"
                         | _, it -> Ok it
+                    let pairWriteback =
+                        match mode with
+                        | Ok m when mSize = MDouble && m <> NoIndex && (rb = rd || rb.RegNum = rd.RegNum + 1) ->
+                            makeFormatError (sprintf "%s%s with write-back cannot use a base register that it loads or stores" uRoot uSuffix) (rb.ToString()) ""
+                        | _ -> Ok()
                     match mode, spf with
+                    | _ when Result.isError pairCheck -> Error(match pairCheck with | Error e -> e | _ -> failwith "?")
+                    | _ when Result.isError pairWriteback -> Error(match pairWriteback with | Error e -> e | _ -> failwith "?")
                     | _, Error e -> Error e
                     | Error e, _ -> Error e
                     | Ok mode', Ok spf' ->
@@ -412,7 +435,7 @@ module Memory
         let parse' (_instrC, (root : string, suffix : string, pCond)) =
             let uRoot = root.ToUpper()
             let uSuffix = suffix.ToUpper()
-            let singleSuffix = match uSuffix with | "" | "B" | "H" | "SB" | "SH" -> true | _ -> false
+            let singleSuffix = match uSuffix with | "" | "B" | "H" | "SB" | "SH" | "D" -> true | _ -> false
             /// PUSH/POP: register list in braces only, base is always SP with writeback
             let parseStack mRoot =
                 match ls.Operands.Trim() with
@@ -502,7 +525,7 @@ module Memory
         match size with
         | MByte -> uint32 (int32 (sbyte (v &&& 0xFFu)))
         | MHalf -> uint32 (int32 (int16 (v &&& 0xFFFFu)))
-        | MWord -> v
+        | MWord | MDouble -> v
 
     let executeLDRSTR (ins : InstrMemSingle) (dp : DataPath) =
         let addr = ins.MAddr dp (int32 dp.Regs.[ins.Rb]) |> uint32
@@ -513,15 +536,24 @@ module Memory
             | PreIndex -> uint32 addr
             | PostIndex -> rbv
         //printfn "Executing Rb=%A(%x) addr = %x  ef = %x" ins.Rb dp.Regs.[ins.Rb] addr ef
-        let unaligned = match ins.MemSize with | MWord -> ef % 4u <> 0u | MHalf -> ef % 2u <> 0u | MByte -> false
+        let unaligned = match ins.MemSize with | MWord -> ef % 4u <> 0u | MHalf -> ef % 2u <> 0u | MByte | MDouble -> false
         if unaligned && not strictAlignment then unalignedAccesses <- unalignedAccesses + 1L
+        let rt2 = if ins.MemSize = MDouble then register (ins.Rd.RegNum + 1) else ins.Rd
+        if ins.MemSize = MDouble && ef % 4u <> 0u then
+            ``Run time error`` (ef, sprintf "LDRD and STRD need a word-aligned address (ARMv7 requires it): 0x%X" ef) |> Error
+        else
         dp
         |> updateReg (uint32 (if ins.MemMode = NoIndex then (match ins.Rb with | R15 -> rbv - 4u | _ -> rbv) else addr >>> 0)) ins.Rb
         |> (fun dp ->
                 match ins.LSType with
+                | LOAD when ins.MemSize = MDouble ->
+                    getDataMemWord ef dp
+                    |> Result.bind (fun lo ->
+                        getDataMemWord (ef + 4u) dp
+                        |> Result.map (fun hi -> dp |> updateReg lo ins.Rd |> updateReg hi rt2))
                 | LOAD ->
                      match ins.MemSize with
-                     | MWord -> (getDataMemWordAny ef dp)
+                     | MWord | MDouble -> (getDataMemWordAny ef dp)
                      | MByte -> (getDataMemByte ef dp)
                      | MHalf -> (getDataMemHalf ef dp)
                      |> Result.map (fun dat -> updateReg (if ins.Signed then signExtend ins.MemSize dat else dat) ins.Rd dp)
@@ -529,7 +561,10 @@ module Memory
                     match ins.MemSize with
                     | MWord -> updateMemWordAny dp.Regs.[ins.Rd] ef dp
                     | MByte -> updateMemByte (dp.Regs.[ins.Rd] |> byte) ef dp
-                    | MHalf -> updateMemHalf dp.Regs.[ins.Rd] ef dp)
+                    | MHalf -> updateMemHalf dp.Regs.[ins.Rd] ef dp
+                    | MDouble ->
+                        updateMemData (Dat dp.Regs.[ins.Rd]) ef dp
+                        |> Result.bind (updateMemData (Dat dp.Regs.[rt2]) (ef + 4u)))
 
     let offsetList start suffix rl wb isLDM =
         let rec makeOffsetList inlst outlist incr start =
