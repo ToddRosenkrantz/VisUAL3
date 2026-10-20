@@ -1,8 +1,8 @@
 ﻿# VisUAL3: ARMv7 assembly emulator
 
-VisUAL3 is a desktop emulator for learning ARM assembly. You write ARMv7 (A32) code in GNU assembler syntax, the syntax gcc, clang and Linux use, then run or step through it and watch registers, flags, memory and the stack change. Errors are explained where they occur, with help for each instruction.
+VisUAL3 is a desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a Cortex-A7-class core in GNU assembler syntax, the syntax gcc, clang and Linux use, then run or step through it and watch registers, flags, memory and the stack change. Errors are explained where they occur, with help for each instruction.
 
-Its **C Call** panel calls your assembly functions the way compiled C would. You write the C prototype in a comment, enter the arguments, and the panel passes them as the ARM calling convention (AAPCS) requires. It then shows the return value, any arrays before and after the call, and calling-convention mistakes such as not preserving r4–r11.
+Its **C Call** panel calls your assembly functions the way compiled C would. You write the C prototype in a comment, enter the arguments, and the panel passes them as the ARM calling convention (AAPCS) requires. `float` and `double` use the hard-float convention, as on armv7hf Linux. It then shows the return value, any arrays before and after the call, and calling-convention mistakes such as not preserving r4–r11. Arguments can be kept as named cases, saved beside the source as a `.ccall` file.
 
 VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) from Imperial College London, which reimplemented Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). The fork replaces VisUAL2's own assembler syntax with GNU syntax and moves it to current tools. VisUAL2 was created by Dr T. Clarke and the 2018 HLP students at Imperial College London. VisUAL3 is free software under the [GNU GPL version 3](../LICENSE); see the [credits](../CREDITS.md).
 
@@ -12,7 +12,7 @@ Download the zip for Windows, Linux or macOS from the [Releases page](https://gi
 
 The [assembly language guide](guide.md) covers the syntax, instructions and directives, and calling functions from C. It is also built into the app: **Help → Assembly language guide** (F1).
 
-The emulated core has no floating-point unit and runs ARM (A32) code only. There are no system calls: a program ends by returning with `bx lr` or by running off the end of its code.
+The emulated core has a VFPv4 floating-point unit (s0–s31, d0–d31), shown on its own **VFP** tab, and runs ARM (A32) code only, without NEON vector instructions. There are no system calls: a program ends by returning with `bx lr` or by running off the end of its code.
 
 ## Building it
 
