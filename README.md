@@ -2,7 +2,7 @@
 
 A desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a Cortex-A7-class core in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
 
-VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 8).
+VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 10).
 
 ## Running it
 
@@ -67,8 +67,8 @@ Results are written back into the tab: `>>;` lines for tests that passed, and `>
 
 Requirements:
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Node.js](https://nodejs.org/) 20 or later (npm comes with it)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (pinned to 10.0 by `global.json`)
+- [Node.js](https://nodejs.org/) 22 LTS or later (npm comes with it)
 
 ```sh
 dotnet tool restore     # installs the Fable compiler (pinned in .config/dotnet-tools.json)

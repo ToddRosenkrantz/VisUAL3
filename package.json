@@ -7,6 +7,9 @@
   "author": "Todd Rosenkrantz",
   "main": "out/main.js",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "fable": "dotnet fable src/Main -o build/main --noCache && dotnet fable src/Renderer -o build/renderer --noCache",
     "bundle": "node build.mjs",

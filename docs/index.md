@@ -16,4 +16,4 @@ The emulated core has no floating-point unit and runs ARM (A32) code only. There
 
 ## Building it
 
-The [README](../README.md) describes building from source (.NET 8 SDK and Node.js), running the tests and packaging for each platform.
+The [README](../README.md) describes building from source (.NET 10 SDK and Node.js 22), running the tests and packaging for each platform.
