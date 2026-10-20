@@ -10,19 +10,6 @@ Description: Javascript code to run Monaco editor and define code highlighting r
 var amdRequire = global.require;
 global.require = nodeRequire;
 
-//
-// get tippy.js node module for awesome tooltips
-// global.tippy = require('tippy.js');
-// NB this does not package properly:
-// SOLUTION: use tippy-all-min.js
-// add to app/js directory
-// add <script src="js/tippy.all.min.js"></script> to index.html
-// (optional, but best practice) to allow update via yarn, 
-// copy this file from ./node_modules/tippy.js to app/js via webpack.config.js CopyWebpackPlugin
-//
-
-
-// todo: why does this work when tippy.js does not?
 var path = require('path');
 
 function uriFromPath(_path) {
@@ -33,14 +20,11 @@ function uriFromPath(_path) {
   return encodeURI('file://' + pathName);
 }
 amdRequire.config({
-  //baseUrl: uriFromPath(path.join(__dirname, '../node_modules/monaco-editor/min'))
-  baseUrl: uriFromPath(path.join(__dirname, 'js'))
-
+  baseUrl: uriFromPath(path.join(__dirname, 'js')),
+  // Load Monaco's modules with <script> tags, as in a browser. Otherwise, because the renderer
+  // has node integration, the loader uses node's vm module, which Electron warns is unsupported.
+  preferScriptTags: true
 });
-// workaround monaco-css not understanding the environment
-self.module = undefined;
-// workaround monaco-typescript not understanding the environment
-self.process.browser = true;
 amdRequire(['vs/editor/editor.main'], function () {
 
   monaco.languages.register({
