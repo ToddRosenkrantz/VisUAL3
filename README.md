@@ -1,8 +1,8 @@
-# VisUAL2: ARMv7 assembly emulator
+# VisUAL3: ARMv7 assembly emulator
 
 A desktop emulator for learning ARM assembly. You write ARMv7 (A32) code in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
 
-This is a modernised fork of [ImperialCollegeLondon/Visual2](https://github.com/ImperialCollegeLondon/Visual2). The original used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 8).
+VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 8).
 
 ## Running it
 
@@ -10,9 +10,9 @@ Download the zip for your platform from a release (or [build it](#packaging)), u
 
 | Platform | Run |
 |---|---|
-| Windows | `VisUAL2-win32-x64\VisUAL2.exe` |
-| Linux | `VisUAL2-linux-x64/VisUAL2` |
-| macOS | `VisUAL2-darwin-arm64/VisUAL2.app` (Apple silicon) or `VisUAL2-darwin-x64/VisUAL2.app` (Intel) |
+| Windows | `VisUAL3-win32-x64\VisUAL3.exe` |
+| Linux | `VisUAL3-linux-x64/VisUAL3` |
+| macOS | `VisUAL3-darwin-arm64/VisUAL3.app` (Apple silicon) or `VisUAL3-darwin-x64/VisUAL3.app` (Intel) |
 
 The builds are not code-signed. On Windows choose **More info → Run anyway** at the SmartScreen warning; on macOS right-click the app and choose **Open** the first time.
 
@@ -96,9 +96,9 @@ This runs the emulator tests twice: on .NET, and as Fable-compiled JavaScript un
 
 | Command | Output in `dist/` |
 |---|---|
-| `npm run pack-linux` | `VisUAL2-linux-x64-<version>.zip` |
-| `npm run pack-win` | `VisUAL2-win32-x64-<version>.zip` |
-| `npm run pack-mac` | `VisUAL2-darwin-x64-<version>.zip`, `VisUAL2-darwin-arm64-<version>.zip` |
+| `npm run pack-linux` | `VisUAL3-linux-x64-<version>.zip` |
+| `npm run pack-win` | `VisUAL3-win32-x64-<version>.zip` |
+| `npm run pack-mac` | `VisUAL3-darwin-x64-<version>.zip`, `VisUAL3-darwin-arm64-<version>.zip` |
 | `npm run pack-all` | all of the above |
 
 Each command builds the app, packages it with `@electron/packager`, and zips the result with `zip-dist.mjs`. All platforms can be packaged from Linux: no Wine is needed for the Windows icon. The zips keep the macOS bundle's symbolic links and the executables' permissions. On a Windows build machine, zipping falls back to PowerShell.

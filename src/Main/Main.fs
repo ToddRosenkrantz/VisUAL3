@@ -29,7 +29,7 @@ let appIcon : string = path?join (dirname, "..", "app", (if platform = "win32" t
 
 let printHelpMessage() =
     printfn """
-Visual2 command line options
+VisUAL3 command line options
 ----------------------------
 -h, --help      - print this help message
 -d, --debug     - run with browser dev tools initially open, for startup debug info logged to console

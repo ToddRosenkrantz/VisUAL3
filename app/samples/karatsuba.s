@@ -1,7 +1,7 @@
-                              @ Demonstration program for VisUAL2, converted to GNU as syntax
+                              @ Demonstration program for VisUAL3 (written for VisUAL2), converted to GNU as syntax
                               @ (labels end in ':', '@' comments, .word/.space/.equ directives,
                               @ and END replaced by a branch to program_end).
-                              @       Demonstration Assembler Program for Visual2
+                              @       Demonstration Assembler Program for VisUAL3
                               @       -------------------------------------------
                               @
                               @       Acknowledgements:
@@ -11,7 +11,7 @@
                               @       This program is approximately 1000 lines long and
                               @       performs a recursive Karatsuba multiplication in
                               @       approx 20,000 instructions, storing data on stack.
-                              @       It exercise most of the VisUAL2 functionality:
+                              @       It exercise most of the VisUAL3 functionality:
                               @       see Memory and Symbols views after running the code.
 
                               MOV R12, #10

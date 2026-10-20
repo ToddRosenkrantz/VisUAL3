@@ -517,7 +517,7 @@ let addFixedToolTips() =
 It can be used as a data register. <br> <br>
 SP is initialised to a value in high <br>
 memory at the start of simulation by <br>
-Visual2 to facilitate  use of stacks"""
+the emulator to make stacks easy to use"""
             | _ -> sprintf "%s is a data register" regID
         makeTextTT (if regID = "R13" then "left" else "right") ("B" + regID) [ "tootip-fixed" ] text
     List.iter (fun n -> makeRegTT (sprintf "R%d" n)) [ 0..13 ]

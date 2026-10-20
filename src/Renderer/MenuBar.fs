@@ -284,7 +284,7 @@ let helpMenu() =
                 menuSeparator
                 makeItem "About" Core.option.None (fun () ->
                     printfn "Directory is:%s" (Stats.dirOfSettings())
-                    showVexAlert (sprintf "<h4>VisUAL2 ARMv7 emulator v%s</h4>" Refs.appVersion +
+                    showVexAlert (sprintf "<h4>VisUAL3 ARMv7 emulator v%s</h4>" Refs.appVersion +
                                 "GNU as syntax, no FPU, C function calls (AAPCS).<br><br>" +
                                 "Based on VisUAL2 (c) 2018 Imperial College London. Acknowledgements: Salman Arif (VisUAL), " +
                                 "HLP 2018 class (F# reimplementation), with special mention to Thomas Carrotti, " +
