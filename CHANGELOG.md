@@ -9,6 +9,16 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 - `ldrd` and `strd`: two words into or from an even/odd register pair (r0/r1 … r10/r11), with the second register optional. They take the same addresses as `ldrh` and always need a word-aligned address.
 - Bit-field instructions `ubfx`, `sbfx`, `bfi` and `bfc`.
 - `clz` (count leading zeros), `rbit` (reverse bits), and `rev`, `rev16` and `revsh` (reverse bytes).
+- **Floating point: a VFPv4 unit with 32 double registers** (d0–d31, with s0–s31 overlapping d0–d15) and the FPSCR:
+  - `vldr`/`vstr`, `vldm`/`vstm` (`ia`, `db`), `vpush`/`vpop`, and `vmov` in all its forms, including VFP constants
+  - `vadd`, `vsub`, `vmul`, `vdiv`, `vnmul`, `vabs`, `vneg`, `vsqrt`; `vmla`, `vmls`, `vnmla`, `vnmls`; fused `vfma`, `vfms`, `vfnma`, `vfnms`
+  - `vcmp`/`vcmpe` with `vmrs APSR_nzcv, fpscr` (or `fmstat`), `vmrs`/`vmsr` for the FPSCR
+  - `vcvt`/`vcvtr` between float, double, integers and fixed point; `vcvtb`/`vcvtt` for half precision
+  - `.float`/`.single` and `.double` data directives
+  - exact IEEE 754 results on both .NET and in the app, with the FPSCR rounding modes, FZ, DN and cumulative exception flags, and ARM's default NaN
+- A **VFP** tab showing s0–s31 or d0–d31 as decimal values and hex, and the FPSCR, with changed registers highlighted.
+- `mrs` and `msr` for the core flags.
+- C Call: `float` and `double` parameters, results and arrays, passed with the hard-float convention (armv7hf): s0–s15/d0–d7 with back-filling, then the stack; results in s0/d0. It checks that s16–s31 and the FPSCR rounding mode are preserved.
 
 ### Fixed
 

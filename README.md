@@ -1,6 +1,6 @@
 # VisUAL3: ARMv7 assembly emulator
 
-A desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a Cortex-A7-class core in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
+A desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a Cortex-A7-class core with a VFPv4 floating-point unit in **GNU assembler syntax**, step through it, and watch registers, flags, memory and the stack. A **C Call** panel calls your assembly functions the way compiled C would, so you can test a function against the C prototype it implements.
 
 VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 10).
 
@@ -38,15 +38,16 @@ table:  .word   10, 20, 30, -5
 ```
 
 - **Syntax:** GNU `as`, unified ARM syntax. Labels end with `:`, comments are `@`, `//` or `/* */`, and `;` separates statements. Directives include `.text`/`.data`/`.bss`, `.word`/`.hword`/`.byte`, `.ascii`/`.asciz`, `.space`, `.align` and `.equ`. gcc boilerplate such as `.type`, `.size`, `.syntax unified` and `.cfi_*` is accepted.
-- **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, `sdiv`/`udiv`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, the bit-field instructions `ubfx`/`sbfx`/`bfi`/`bfc`, `clz`, `rbit`, `rev`/`rev16`/`revsh`, `ldr`/`str` with `b`, `h` and `d` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx` and `adr`, all with condition codes.
+- **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, `sdiv`/`udiv`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, the bit-field instructions `ubfx`/`sbfx`/`bfi`/`bfc`, `clz`, `rbit`, `rev`/`rev16`/`revsh`, `ldr`/`str` with `b`, `h` and `d` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx`, `adr` and `mrs`/`msr`, all with condition codes.
+- **Floating point:** VFPv4 with s0–s31 and d0–d31: loads and stores, `vmov`, arithmetic, multiply-accumulate and fused multiply-add, `vsqrt`, compares with `vmrs`, and conversions, with exact IEEE rounding and FPSCR flags. `.float` and `.double` store values. The **VFP** tab shows the registers.
 - **Running:** execution starts at the first instruction in `.text`. It ends when execution runs past the last instruction, or when the code returns with `bx lr`. SP starts at `0xFF000000`, and LR at a return address that stops the run.
-- **Not supported:** floating point (the core has no FPU), Thumb, `svc`/system calls, `blx`, exclusive loads and stores (`ldrex`/`strex`), `mrs`/`msr`, and macros.
+- **Not supported:** NEON vector instructions, Thumb, `svc`/system calls, `blx`, exclusive loads and stores (`ldrex`/`strex`), `mrs`/`msr`, and macros.
 
 **Help → Assembly language guide** (F1) in the app is the full reference. Pointing at a line marked as an error shows help for that instruction or directive.
 
 ### Calling functions from C
 
-Put a C prototype in a comment starting with `@ C:` and open the **C Call** tab. Enter arguments; arrays and strings are built in memory for you. Then press **Call** to run, or **Step into** to step through. The panel shows the return value, arrays before and after the call, and calling-convention (AAPCS) problems. It flags r4–r11 or SP not preserved, results not extended to 32 bits, and writes through `const` pointers.
+Put a C prototype in a comment starting with `@ C:` and open the **C Call** tab. Enter arguments; arrays and strings are built in memory for you. Then press **Call** to run, or **Step into** to step through. The panel shows the return value, arrays before and after the call, and calling-convention (AAPCS) problems. `float` and `double` use the hard-float convention, as on armv7hf Linux: they are passed in s0–s15/d0–d7 and returned in s0/d0. It flags r4–r11, s16–s31 or SP not preserved, results not extended to 32 bits, and writes through `const` pointers.
 
 ### Testbenches
 

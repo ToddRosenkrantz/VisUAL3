@@ -45,7 +45,19 @@ amdRequire(['vs/editor/editor.main'], function () {
       [['LDM', 'STM'], ['', 'IA', 'IB', 'DA', 'DB', 'FD', 'ED', 'FA', 'EA']],
       [['PUSH', 'POP', 'B', 'BL', 'BX', 'ADR'], ['']]
     ];
+    // VFP: root + condition + data types (vaddeq.f32, vcvt.s32.f64, vldr.64)
+    var vfpRoots = ['VADD', 'VSUB', 'VMUL', 'VDIV', 'VNMUL', 'VMLA', 'VMLS', 'VNMLA', 'VNMLS', 'VFMA', 'VFMS', 'VFNMA', 'VFNMS',
+      'VABS', 'VNEG', 'VSQRT', 'VCMP', 'VCMPE', 'VCVT', 'VCVTR', 'VCVTB', 'VCVTT', 'VMOV', 'VMRS', 'VMSR', 'VLDR', 'VSTR',
+      'VLDM', 'VSTM', 'VLDMIA', 'VSTMIA', 'VLDMDB', 'VSTMDB', 'VPUSH', 'VPOP', 'MRS', 'MSR', 'FMSTAT'];
+    var types = ['', '.F32', '.F64', '.32', '.64', '.F64.F32', '.F32.F64', '.S32.F32', '.U32.F32', '.S32.F64', '.U32.F64',
+      '.F32.S32', '.F32.U32', '.F64.S32', '.F64.U32', '.S16.F32', '.U16.F32', '.S16.F64', '.U16.F64', '.F32.S16', '.F32.U16',
+      '.F64.S16', '.F64.U16', '.F32.F16', '.F16.F32'];
     var words = [];
+    vfpRoots.forEach(function (root) {
+      conds.forEach(function (cond) {
+        types.forEach(function (t) { words.push(root + cond + t); });
+      });
+    });
     specs.forEach(function (spec) {
       spec[0].forEach(function (root) {
         spec[1].forEach(function (suffix) {
@@ -63,7 +75,10 @@ amdRequire(['vs/editor/editor.main'], function () {
     keywords: armMnemonics(),
     registers: ['r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15',
                 'sp', 'lr', 'pc', 'fp', 'ip', 'sl', 'sb', 'a1', 'a2', 'a3', 'a4',
-                'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8'],
+                'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8',
+                'fpscr', 'apsr', 'cpsr', 'apsr_nzcv', 'apsr_nzcvq', 'apsr_g', 'cpsr_f']
+                .concat(Array.from({ length: 32 }, function (_, i) { return 's' + i; }))
+                .concat(Array.from({ length: 32 }, function (_, i) { return 'd' + i; })),
     shifts: ['lsl', 'lsr', 'asr', 'ror', 'rrx', 'asl'],
     brackets: [
       ['{', '}', 'delimiter.curly'],
@@ -98,6 +113,8 @@ amdRequire(['vs/editor/editor.main'], function () {
           }
         }],
         // immediates and numbers
+        [/#\s*-?\d*\.\d+([eE][-+]?\d+)?/, 'number.hash'],
+        [/#\s*-?\d+\.?([eE][-+]?\d+)/, 'number.hash'],
         [/#\s*-?0[xX][0-9a-fA-F]+/, 'number.hash.hex'],
         [/#\s*-?0[bB][01]+/, 'number.hash.bin'],
         [/#\s*-?\d+/, 'number.hash'],
@@ -105,6 +122,7 @@ amdRequire(['vs/editor/editor.main'], function () {
         [/0[xX][0-9a-fA-F]+/, 'number.bare.hex'],
         [/0[bB][01]+/, 'number.bare.bin'],
         [/\d+[bf]\b/, 'type.identifier'], // local label reference 1b / 1f
+        [/\d*\.\d+([eE][-+]?\d+)?/, 'number.bare'], // floating point data: .float 0.1, 2.5e-3
         [/\d+/, 'number.bare'],
         // strings and characters
         [/"([^"\\]|\\.)*$/, 'string.invalid'],

@@ -45,6 +45,19 @@ let private shift (root : string) legend =
 
 let private dataDir root legend syntax examples = doc root [ "" ] legend syntax examples
 
+let private vfp3 (root : string) legend =
+    let r = root.ToLower()
+    doc root [ "" ] legend (sprintf "%s{cond}.f32 Sd, Sn, Sm   or   %s.f64 Dd, Dn, Dm   (Fd may be omitted)" r r)
+        [ sprintf "%s.f32 s0, s1, s2" r; sprintf "%s.f64 d0, d1, d2" r ]
+
+let private vfpMac (root : string) legend =
+    let r = root.ToLower()
+    doc root [ "" ] legend (sprintf "%s{cond}.f32 Sd, Sn, Sm   or   %s.f64 Dd, Dn, Dm" r r) [ sprintf "%s.f64 d0, d1, d2" r ]
+
+let private vfp2 (root : string) legend =
+    let r = root.ToLower()
+    doc root [ "" ] legend (sprintf "%s{cond}.f32 Sd, Sm   or   %s.f64 Dd, Dm" r r) [ sprintf "%s.f32 s0, s1" r; sprintf "%s.f64 d0, d1" r ]
+
 /// All instructions and directives the assembler accepts
 let opDocs = [
     dp3 "ADD" "Rd := Rn + op2"
@@ -113,6 +126,57 @@ let opDocs = [
     doc "BL" [ "" ] "branch to label and put the return address in lr (call a function)" "bl{cond} label" [ "bl sum_array"; "bleq handler" ]
     doc "BX" [ "" ] "branch to the address in a register (return from a function)" "bx{cond} Rm" [ "bx lr"; "bxne lr"; "bx r3" ]
     doc "ADR" [ "" ] "Rd := address of a nearby label (PC-relative)" "adr{cond} Rd, label" [ "adr r0, table" ]
+    vfp3 "VADD" "Fd := Fn + Fm"
+    vfp3 "VSUB" "Fd := Fn - Fm"
+    vfp3 "VMUL" "Fd := Fn * Fm"
+    vfp3 "VDIV" "Fd := Fn / Fm (x/0 gives infinity and sets DZC; 0/0 gives NaN and sets IOC)"
+    vfp3 "VNMUL" "Fd := -(Fn * Fm)"
+    vfpMac "VMLA" "Fd := Fd + Fn * Fm, rounding the product and the sum separately"
+    vfpMac "VMLS" "Fd := Fd - Fn * Fm, rounding twice"
+    vfpMac "VNMLA" "Fd := -Fd - Fn * Fm, rounding twice"
+    vfpMac "VNMLS" "Fd := -Fd + Fn * Fm, rounding twice"
+    vfpMac "VFMA" "Fd := Fd + Fn * Fm, fused: rounded once"
+    vfpMac "VFMS" "Fd := Fd - Fn * Fm, fused: rounded once"
+    vfpMac "VFNMA" "Fd := -Fd - Fn * Fm, fused: rounded once"
+    vfpMac "VFNMS" "Fd := -Fd + Fn * Fm, fused: rounded once"
+    vfp2 "VABS" "Fd := |Fm| (clears the sign bit)"
+    vfp2 "VNEG" "Fd := -Fm (flips the sign bit)"
+    vfp2 "VSQRT" "Fd := square root of Fm"
+    doc "VCMP" [ "" ] "compare Fd with Fm or 0.0, setting N, Z, C, V in the FPSCR; copy them to the core flags with vmrs APSR_nzcv, fpscr"
+        "vcmp{cond}.f32 Sd, Sm   vcmp.f64 Dd, Dm   vcmp.f32 Sd, #0"
+        [ "vcmp.f32 s0, s1"; "vcmp.f64 d0, #0"; "vmrs APSR_nzcv, fpscr   @ then blt, beq, bgt ..." ]
+    doc "VCMPE" [ "" ] "as vcmp, but a quiet NaN operand also sets IOC" "vcmpe{cond}.f32 Sd, Sm" [ "vcmpe.f64 d0, d1" ]
+    doc "VCVT" [ "" ] "convert: vcvt.<to>.<from>. To an integer it rounds toward zero (saturating, NaN gives 0)"
+        "vcvt{cond}.<to>.<from> Fd, Fm   or   vcvt.<to>.<from> Fd, Fd, #fbits (fixed point)"
+        [ "vcvt.s32.f32 s0, s1     @ float to int"; "vcvt.f64.s32 d0, s2     @ int to double"; "vcvt.f32.f64 s0, d1"; "vcvt.s32.f32 s0, s0, #16  @ to 16.16 fixed point" ]
+    doc "VCVTR" [ "" ] "convert to an integer using the FPSCR rounding mode (round to nearest by default)" "vcvtr{cond}.s32.f32 Sd, Sm" [ "vcvtr.s32.f64 s0, d1" ]
+    doc "VCVTB" [ "" ] "convert between single and the half-precision value in the bottom 16 bits of an s register"
+        "vcvtb{cond}.f32.f16 Sd, Sm   or   vcvtb.f16.f32 Sd, Sm" [ "vcvtb.f16.f32 s1, s0"; "vcvtb.f32.f16 s2, s1" ]
+    doc "VCVTT" [ "" ] "convert between single and the half-precision value in the top 16 bits of an s register"
+        "vcvtt{cond}.f32.f16 Sd, Sm   or   vcvtt.f16.f32 Sd, Sm" [ "vcvtt.f16.f32 s1, s0" ]
+    doc "VMOV" [ "" ] "copy bits between VFP registers, or between core and VFP registers, or load a VFP constant"
+        "vmov{cond}{.f32|.f64} Fd, Fm   vmov Sn, Rt   vmov Rt, Sn   vmov Dm, Rlo, Rhi   vmov Rlo, Rhi, Dm   vmov.f32 Sd, #imm"
+        [ "vmov.f64 d0, d1"; "vmov s0, r0"; "vmov r0, r1, d0       @ r0 = low half"; "vmov.f32 s0, #1.5     @ ±(16..31)/16 × 2^n, n -3..4"; "vmov.32 d2[1], r3" ]
+    doc "VLDR" [ "" ] "load an s or d register from memory (word-aligned)" "vldr{cond} Fd, [Rn{, #±offset}]   or   vldr Fd, label"
+        [ "vldr s0, [r0]"; "vldr d1, [r0, #8]"; "vldr.64 d2, [sp, #-16]" ]
+    doc "VSTR" [ "" ] "store an s or d register to memory (word-aligned)" "vstr{cond} Fd, [Rn{, #±offset}]" [ "vstr s0, [r0, #4]"; "vstr d1, [sp]" ]
+    doc "VLDM" [ ""; "IA"; "DB" ] "load consecutive VFP registers from consecutive words" "vldm{ia|db}{cond} Rn{!}, {list}"
+        [ "vldmia r0!, {s0-s3}"; "vldm r1, {d0, d1}"; "vldmdb r2!, {d4}" ]
+    doc "VSTM" [ ""; "IA"; "DB" ] "store consecutive VFP registers to consecutive words" "vstm{ia|db}{cond} Rn{!}, {list}"
+        [ "vstmia r0!, {s0-s3}"; "vstmdb sp!, {d8-d9}" ]
+    doc "VPUSH" [ "" ] "push consecutive VFP registers (vstmdb sp!, {list})" "vpush{cond} {list}" [ "vpush {d8-d15}"; "vpush {s16, s17}" ]
+    doc "VPOP" [ "" ] "pop consecutive VFP registers (vldmia sp!, {list})" "vpop{cond} {list}" [ "vpop {d8-d15}" ]
+    doc "VMRS" [ "" ] "read the FPSCR into a core register, or copy its N, Z, C, V into the core flags"
+        "vmrs{cond} Rt, fpscr   or   vmrs APSR_nzcv, fpscr" [ "vmrs APSR_nzcv, fpscr"; "vmrs r0, fpscr" ]
+    doc "FMSTAT" [ "" ] "copy the FPSCR N, Z, C, V into the core flags (same as vmrs APSR_nzcv, fpscr)" "fmstat{cond}" [ "fmstat" ]
+    doc "VMSR" [ "" ] "write the FPSCR: rounding mode (bits 23-22), FZ (24), DN (25), flags and exception bits"
+        "vmsr{cond} fpscr, Rt" [ "mov r0, #0x00C00000   @ round toward zero"; "vmsr fpscr, r0" ]
+    doc "MRS" [ "" ] "Rd := the core flags N, Z, C, V in bits 31-28" "mrs{cond} Rd, apsr" [ "mrs r0, apsr" ]
+    doc "MSR" [ "" ] "set the core flags N, Z, C, V from bits 31-28 of a register or constant" "msr{cond} APSR_nzcvq, Rm   or   msr APSR_nzcvq, #imm"
+        [ "msr APSR_nzcvq, r0"; "msr APSR_nzcvq, #0x20000000   @ C = 1" ]
+    dataDir ".FLOAT" "store single-precision floating point values" ".float value, ..." [ "vals: .float 1.5, -0.1, 3e8" ]
+    dataDir ".SINGLE" "store single-precision values (same as .float)" ".single value, ..." [ ".single 0.5" ]
+    dataDir ".DOUBLE" "store double-precision floating point values" ".double value, ..." [ "pi: .double 3.141592653589793" ]
     dataDir ".WORD" "store 32-bit values" ".word value, ..." [ "table: .word 1, 2, -3, 0x10"; "ptrs:  .word table, buffer" ]
     dataDir ".LONG" "store 32-bit values (same as .word)" ".long value, ..." [ ".long 100000" ]
     dataDir ".INT" "store 32-bit values (same as .word)" ".int value, ..." [ ".int 7" ]
@@ -140,9 +204,11 @@ let opDocs = [
     dataDir ".GLOBAL" "make a label visible to C (needed for C Call)" ".global symbol, ..." [ ".global sum_array" ]
 ]
 
-/// Find the documentation for an opcode: root + allowed suffix + condition, or a directive
+/// Find the documentation for an opcode: root + allowed suffix + condition, or a directive.
+/// A VFP type such as .F32 is ignored.
 let findDoc (opc : string) =
     let u = opc.ToUpper()
+    let u = if u.StartsWith "." then u else u.Split('.').[0]
     if u.StartsWith "." then
         opDocs |> List.tryFind (fun d -> d.Root = u)
     else

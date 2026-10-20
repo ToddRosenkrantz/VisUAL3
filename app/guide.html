@@ -44,7 +44,7 @@
 <body>
 <header>
   <h1>Assembly language guide</h1>
-  <p>ARMv7 (A32) code in GNU assembler syntax, as written for gcc, clang and Linux. The emulated core is a Cortex-A7-class ARMv7-A processor with no floating-point unit.</p>
+  <p>ARMv7 (A32) code in GNU assembler syntax, as written for gcc, clang and Linux. The emulated core is a Cortex-A7-class ARMv7-A processor with a VFPv4 floating-point unit (32 double registers).</p>
 </header>
 <div class="layout">
 <nav aria-label="Contents">
@@ -57,6 +57,7 @@
   <a href="#conditions">Condition codes</a>
   <a href="#data">Data and constants</a>
   <a href="#expressions">Expressions</a>
+  <a href="#vfp">Floating point (VFP)</a>
   <a href="#c-calls">Calling functions from C</a>
   <a href="#limits">Not supported</a>
 </nav>
@@ -185,6 +186,7 @@
   <tr><td class="mono">.word 1, -2, label</td><td>32-bit values (also <code>.long</code>, <code>.int</code>, <code>.4byte</code>).</td></tr>
   <tr><td class="mono">.hword 0x1234</td><td>16-bit values (also <code>.short</code>, <code>.2byte</code>).</td></tr>
   <tr><td class="mono">.byte 1, 'A'</td><td>8-bit values.</td></tr>
+  <tr><td class="mono">.float 1.5, -0.1</td><td>Single-precision floating point values (also <code>.single</code>). <code>.double 3.14159</code> stores double precision.</td></tr>
   <tr><td class="mono">.asciz "hello\n"</td><td>A string with a zero byte at the end (also <code>.string</code>). <code>.ascii</code> adds no zero.</td></tr>
   <tr><td class="mono">.space 64</td><td>64 zero bytes (also <code>.skip</code>, <code>.zero</code>). <code>.fill 10, 4, -1</code> repeats a value.</td></tr>
   <tr><td class="mono">.align 2</td><td>Pad to a multiple of 2² = 4 bytes (also <code>.p2align</code>; <code>.balign 4</code> takes bytes).</td></tr>
@@ -198,6 +200,42 @@
 <ul>
   <li>Numbers: decimal <code>42</code>, hex <code>0x2a</code>, binary <code>0b101010</code>, octal with a leading zero (<code>052</code>), characters <code>'A'</code> and <code>'\n'</code>.</li>
   <li>Operators, tightest first: <code>- ~</code> (unary); <code>* / % &lt;&lt; &gt;&gt;</code>; <code>| &amp; ^</code>; <code>+ -</code>. Use brackets when in doubt.</li>
+</ul>
+
+<h2 id="vfp">Floating point (VFP)</h2>
+<p>The floating-point unit has its own registers, shown on the <b>VFP</b> tab: 32 single-precision registers <code>s0</code>–<code>s31</code> and 32 double-precision registers <code>d0</code>–<code>d31</code>. They overlap: <code>d0</code> is <code>s0</code> (low half) and <code>s1</code> (high half), up to <code>d15</code> = <code>s30</code>, <code>s31</code>. <code>d16</code>–<code>d31</code> are separate.</p>
+<pre><span class="c">@ C: extern double average(const double *a, int n);</span>
+        <span class="d">.global</span> average
+<span class="l">average:</span>
+        <span class="k">vmov</span>    <span class="r">s15</span>, <span class="r">r1</span>         <span class="c">@ n into a VFP register</span>
+        <span class="k">vcvt.f64.s32</span> <span class="r">d16</span>, <span class="r">s15</span>  <span class="c">@ ... converted to double</span>
+        <span class="k">vsub.f64</span> <span class="r">d0</span>, <span class="r">d0</span>, <span class="r">d0</span>    <span class="c">@ sum = 0.0</span>
+<span class="l">1:</span>      <span class="k">vldmia</span>  <span class="r">r0</span>!, {<span class="r">d1</span>}       <span class="c">@ load a[i], step r0 by 8</span>
+        <span class="k">vadd.f64</span> <span class="r">d0</span>, <span class="r">d0</span>, <span class="r">d1</span>
+        <span class="k">subs</span>    <span class="r">r1</span>, <span class="r">r1</span>, <span class="n">#1</span>
+        <span class="k">bne</span>     1b
+        <span class="k">vdiv.f64</span> <span class="r">d0</span>, <span class="r">d0</span>, <span class="r">d16</span>   <span class="c">@ result in d0</span>
+        <span class="k">bx</span>      <span class="r">lr</span></pre>
+<table>
+  <tr><th>Kind</th><th>Instructions</th><th>Example</th></tr>
+  <tr><td>Arithmetic</td><td class="mono">vadd vsub vmul vdiv vnmul vabs vneg vsqrt</td><td class="mono">vmul.f32 s0, s1, s2</td></tr>
+  <tr><td>Multiply-accumulate (two roundings)</td><td class="mono">vmla vmls vnmla vnmls</td><td class="mono">vmla.f64 d0, d1, d2</td></tr>
+  <tr><td>Fused multiply-add (one rounding)</td><td class="mono">vfma vfms vfnma vfnms</td><td class="mono">vfma.f64 d0, d1, d2</td></tr>
+  <tr><td>Move</td><td class="mono">vmov</td><td class="mono">vmov s0, r1 &nbsp; vmov.f32 s0, #1.5</td></tr>
+  <tr><td>Load and store</td><td class="mono">vldr vstr vldm vstm vpush vpop</td><td class="mono">vldr d0, [r0, #8]</td></tr>
+  <tr><td>Compare</td><td class="mono">vcmp vcmpe vmrs</td><td class="mono">vcmp.f32 s0, #0</td></tr>
+  <tr><td>Convert</td><td class="mono">vcvt vcvtr vcvtb vcvtt</td><td class="mono">vcvt.s32.f64 s0, d1</td></tr>
+  <tr><td>Status registers</td><td class="mono">vmrs vmsr mrs msr</td><td class="mono">vmrs r0, fpscr</td></tr>
+</table>
+<ul>
+  <li>Each instruction names its type: <code>.f32</code> for single precision on s registers, <code>.f64</code> for double precision on d registers. Conditions go before the type: <code>vaddeq.f32</code>.</li>
+  <li><code>vmov</code> copies between registers of the same kind (<code>vmov.f64 d0, d1</code>) and between core and VFP registers: <code>vmov s0, r0</code>, <code>vmov r0, s0</code>, <code>vmov d0, r0, r1</code> (r0 is the low half), <code>vmov r0, r1, d0</code>, <code>vmov.32 d0[1], r2</code>. It copies bits: use <code>vcvt</code> to convert an integer to floating point.</li>
+  <li><code>vmov.f32 s0, #1.5</code> only takes constants of the form ±(16 to 31)/16 × 2<sup>n</sup> with n from −3 to 4, such as 0.5, 1.0, 1.5, 2.75 or 10.0. For any other value use <code>.float</code> or <code>.double</code> data and <code>vldr</code>.</li>
+  <li><code>vldr</code>/<code>vstr</code> take <code>[Rn]</code> or <code>[Rn, #offset]</code> with an offset that is a multiple of 4 up to ±1020, or a label within 1020 bytes. For data further away, use <code>ldr r0, =label</code> and then <code>vldr s0, [r0]</code>. <code>vldm</code>/<code>vstm</code> (<code>ia</code> or <code>db</code>, optionally with <code>!</code>) and <code>vpush</code>/<code>vpop</code> take a list of consecutive registers: <code>vpush {d8-d15}</code>. All VFP loads and stores need a word-aligned address.</li>
+  <li>A compare sets the N, Z, C and V flags in the FPSCR, not in the core. Copy them with <code>vmrs APSR_nzcv, fpscr</code> (or <code>fmstat</code>) before a conditional branch: then <code>blt</code>, <code>beq</code>, <code>bgt</code> and so on work as for integers, and <code>bvs</code> means unordered (a NaN was compared).</li>
+  <li><code>vcvt.s32.f32 s0, s1</code> converts to an integer rounding toward zero, as C does; <code>vcvtr</code> uses the FPSCR rounding mode. Out-of-range values saturate and NaN gives 0. <code>vcvt.f64.f32</code> and <code>vcvt.f32.f64</code> change precision. With <code>#fbits</code> it converts to or from fixed point in place: <code>vcvt.s32.f32 s0, s0, #16</code>. <code>vcvtb</code>/<code>vcvtt</code> convert to and from half precision in the bottom or top half of an s register.</li>
+  <li>Arithmetic is exact IEEE 754 with the rounding mode set in FPSCR (round to nearest by default). The FPSCR keeps cumulative exception flags: IOC (invalid, e.g. 0/0), DZC (division by zero), OFC (overflow), UFC (underflow), IXC (inexact) and IDC (input denormal). Invalid operations give the default NaN <code>0x7FC00000</code>. FZ (flush to zero) and DN (default NaN) work when set with <code>vmsr</code>.</li>
+  <li><code>mrs r0, apsr</code> copies the core N, Z, C and V flags into bits 31–28 of r0; <code>msr APSR_nzcvq, r0</code> (or <code>#imm</code>) sets them.</li>
 </ul>
 
 <h2 id="c-calls">Calling functions from C</h2>
@@ -219,16 +257,18 @@
 </ol>
 <h3>How arguments are passed</h3>
 <ul>
-  <li>The first four arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>
+  <li>Integer and pointer arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>
+  <li>As on armv7hf Linux (the hard-float convention), <code>float</code> arguments go in s0–s15 and <code>double</code> arguments in d0–d7, separately from the integers. A float can fill a gap left by a double: <code>f(float a, double b, float c)</code> uses s0, d1 and s1. When they run out, the rest go on the stack.</li>
   <li><code>char</code> and <code>short</code> arguments are sign- or zero-extended to 32 bits. Plain <code>char</code> is unsigned on ARM.</li>
-  <li>The result is returned in r0. A function returning <code>char</code>, <code>short</code> or <code>_Bool</code> must extend it to 32 bits itself.</li>
-  <li>The function must leave r4–r11 and SP as it found them.</li>
+  <li>The result is returned in r0, or s0 for <code>float</code> and d0 for <code>double</code>. A function returning <code>char</code>, <code>short</code> or <code>_Bool</code> must extend it to 32 bits itself.</li>
+  <li>The function must leave r4–r11, SP and s16–s31 (d8–d15) as it found them, and must not change the FPSCR rounding mode.</li>
 </ul>
 <h3>Arguments</h3>
 <table>
   <tr><th>Parameter type</th><th>What to enter</th></tr>
   <tr><td class="mono">int, unsigned, long, short, char, int8_t … uint32_t, size_t</td><td>A number (<code>-5</code>, <code>0x1f</code>) or a character (<code>'A'</code>). It must fit the type.</td></tr>
   <tr><td class="mono">_Bool</td><td>true or false.</td></tr>
+  <tr><td class="mono">float, double</td><td>A number such as <code>1.5</code>, <code>-0.25</code> or <code>3e8</code>. Arrays of them take elements such as <code>{1.5, 2, 0.1}</code>.</td></tr>
   <tr><td class="mono">int *a, const short *p, int a[]</td><td><b>array</b>: elements such as <code>{10, 20, 30}</code>. <b>output buffer</b>: a number of zeroed elements. <b>address</b>: a label, an address or <code>NULL</code>.</td></tr>
   <tr><td class="mono">char *s, const char *s, void *p</td><td>The same, or <b>string</b>: text such as <code>hello\n</code>. A zero byte is added.</td></tr>
 </table>
@@ -236,6 +276,7 @@
 <h3>Checks after the call</h3>
 <ul>
   <li>r4–r11 or SP not preserved. They start with recognisable values <code>0xC0DE0004</code>–<code>0xC0DE000B</code>.</li>
+  <li>s16–s31 not preserved (they start as 16.0 to 31.0), or the FPSCR rounding mode, FZ or DN changed.</li>
   <li>A <code>char</code>, <code>short</code> or <code>_Bool</code> result that is not properly extended.</li>
   <li>Data changed through a <code>const</code> pointer.</li>
   <li>The function is not declared <code>.global</code>.</li>
@@ -244,10 +285,10 @@
 
 <h2 id="limits">Not supported</h2>
 <ul>
-  <li>Floating point (VFP/NEON instructions, <code>float</code> and <code>double</code>): the emulated core has no FPU.</li>
+  <li>NEON (Advanced SIMD) vector instructions: floating point is scalar VFP only. VFP instructions take one cycle each in the cycle count.</li>
   <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
-  <li>Exclusive loads and stores (<code>ldrex</code>, <code>strex</code>), status register access (<code>mrs</code>, <code>msr</code>), and saturating and SIMD instructions.</li>
+  <li>Exclusive loads and stores (<code>ldrex</code>, <code>strex</code>), and saturating and SIMD instructions.</li>
   <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
   <li>In C calls: 64-bit types (<code>long long</code>), structs, variadic functions and function pointers.</li>
 </ul>

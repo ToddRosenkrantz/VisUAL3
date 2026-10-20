@@ -1709,6 +1709,22 @@ dot:
         hasProblem "@ C: void bad(void);\n.global bad\nbad:\nvmov.f32 s16, #1.0\nbx lr" [] "s16 was not preserved"
         @ hasProblem "@ C: void bad(void);\n.global bad\nbad:\nmov r0, #0x00C00000\nvmsr fpscr, r0\nbx lr" [] "FPSCR control bits"
         @ returns "@ C: float ok(float x);\n.global ok\nok:\nvpush {s16}\nvmov.f32 s16, #2.0\nvmul.f32 s0, s0, s16\nvpop {s16}\nbx lr" [ "1.5" ] 0x40400000L 0
+    "float: the guide's average example", fun () ->
+        let avg = """@ C: extern double average(const double *a, int n);
+        .global average
+average:
+        vmov    s15, r1
+        vcvt.f64.s32 d16, s15
+        vsub.f64 d0, d0, d0
+1:      vldmia  r0!, {d1}
+        vadd.f64 d0, d0, d1
+        subs    r1, r1, #1
+        bne     1b
+        vdiv.f64 d0, d0, d16
+        bx      lr"""
+        match cCall avg [ "{1.5, 2.5, 4}"; "3" ] with
+        | Ok(_, r) -> expectEq "average" r.ReturnText "2.6666666666666665" @ expectEq "problems" r.Problems []
+        | Error e -> [ e ]
     "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with
