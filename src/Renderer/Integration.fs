@@ -142,6 +142,7 @@ let resetEmulator() =
     resetRegs()
     resetFlags()
     updateRegisters()
+    VfpView.reset ()
     updateClockTime (0uL, 0uL)
 
 /// Display current execution state in GUI from stored runMode
@@ -160,6 +161,7 @@ let showInfoFromCurrentMode() =
         setRegs dp.Regs
         setFlags uFl
         updateRegisters()
+        VfpView.setState dp.Fp
         updateClockTime ((ri.StepsDone |> uint64), (ri.CyclesDone |> uint64)) |> ignore
     | _ -> ()
 

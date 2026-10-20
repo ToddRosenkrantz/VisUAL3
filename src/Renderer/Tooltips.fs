@@ -505,6 +505,7 @@ let addFixedToolTips() =
     makeButtonTT "bottom" "tab-sym" [ "tootip-fixed" ] "Displays symbols (labels) <br> after execution has started"
     makeButtonTT "bottom" "tab-mem" [ "tootip-fixed" ] "Displays current data memory contents after execution has started <br> Words are added dynamically when they are written"
     makeButtonTT "bottom" "tab-reg" [ "tooltip-fixed" ] "Displays current register contents"
+    makeButtonTT "bottom" "tab-vfp" [ "tooltip-fixed" ] "Displays the floating-point (VFP) registers <br> s0-s31 or d0-d31, and the FPSCR"
     makeButtonTT "bottom" "rep-hex" [ "tooltip-fixed" ] "Switch numeric displays to hexadecimal"
     makeButtonTT "bottom" "rep-bin" [ "tooltip-fixed" ] "Switch numeric displays to binary. <br> In binary '_' is separator <br> used to make bits more readable <br> optional in assembler literals"
     makeButtonTT "bottom" "rep-dec" [ "tooltip-fixed" ] "Switch numeric displays to two's complement signed decimal"

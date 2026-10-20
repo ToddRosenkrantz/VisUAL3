@@ -12,6 +12,7 @@
     <Compile Include="Tabs.fs" />
     <Compile Include="Settings.fs" />
     <Compile Include="Views.fs" />
+    <Compile Include="VfpView.fs" />
     <Compile Include="Files.fs" />
     <Compile Include="Testbench.fs" />
     <Compile Include="Integration.fs" />

@@ -107,6 +107,7 @@ let init() =
         console.log (sprintf "View changed to %A" view) |> ignore
         Views.setView view
         if view = CCall then CCallView.render ()
+        if view = Vfp then VfpView.render ()
         null
     )
 

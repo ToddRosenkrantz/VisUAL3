@@ -34,7 +34,7 @@ let calcDashboardWidth() =
         match currentRep, currentView with
         | Bin, _ -> "--dashboard-width-binrep"
         | _, Registers -> "--dashboard-width-init-registers"
-        | _, CCall -> "--dashboard-width-call"
+        | _, CCall | _, Vfp -> "--dashboard-width-call"
         | _ -> "--dashboard-width-init-other"
         |> getCustomCSS
     printf "Setting width to %s" w
