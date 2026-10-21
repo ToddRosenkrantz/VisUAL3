@@ -7,6 +7,7 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 ### Added
 
 - C Call: a size after an array or quoted string gives a buffer with room to spare, e.g. `"Hello, " [32]` or `{1, 2, 3} [10]`, the rest zeroed. This makes functions such as `strcat` testable.
+- C Call: pointers to arrays of structs. Structs are declared in `@ C:` comments (`struct`, `typedef struct`, with `__attribute__((packed))` before or after the braces) and laid out as gcc does on ARM; the panel shows each layout. Arrays are entered as C initializers, shown as a table per member, and checked member by member.
 - C Call: char buffers are also shown as text before and after the call, and string expectations report text instead of byte values.
 
 ## 3.0.0-dev.4 (2026-10-20)

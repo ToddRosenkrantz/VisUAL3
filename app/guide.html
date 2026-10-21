@@ -261,6 +261,19 @@
 <h3>Saving arguments as cases</h3>
 <p>Each function can keep several named sets of arguments, called cases. The <b>Case</b> row under <b>Function</b> picks one. Type a name and press <b>Save as</b> to keep the current arguments as a new case. Like Save As in an editor, the new case is then the one you edit. <b>Delete</b> removes the case shown.</p>
 <p>Cases are saved with the source: saving <code>prog.s</code> also writes <code>prog.ccall</code> beside it, and opening <code>prog.s</code> loads <code>prog.ccall</code> if it is there. Changing an argument marks the file unsaved. A <code>.ccall</code> file is short, readable JSON, so it can be edited by hand or handed out with the <code>.s</code>.</p>
+<h3>Arrays of structs</h3>
+<p>Declare a struct in an <code>@ C:</code> comment, before or after the prototypes that use it, then pass a pointer to an array of them. A declaration may continue over several <code>@ C:</code> lines.</p>
+<pre><span class="c">@ C: struct student { char name[16]; int score; double gpa; };</span>
+<span class="c">@ C: typedef struct __attribute__((packed)) { char tag; int value; } item_t;</span>
+<span class="c">@ C: extern void curve(struct student *s, int n, int bonus);</span>
+<span class="c">@ C: extern int sum_values(const item_t *items, int n);</span></pre>
+<ul>
+  <li>Members are laid out as gcc does on ARM: each at a multiple of its own size, <code>double</code> and <code>long long</code> at a multiple of 8, and the struct padded to a multiple of its largest member. <code>__attribute__((packed))</code>, before or after the braces, removes all padding. The panel shows each struct's layout, e.g. <code>struct student: 32 bytes, aligned to 8: char name[16] at 0, int score at 16, double gpa at 24</code>.</li>
+  <li>Enter the array as a C initializer: <code>{{"Ann", 90, 3.5}, {"Bob", 75, 2.8}}</code>. Members left out are zero; a <code>char</code> array member takes a string, other array members <code>{1, 2, 3}</code>. <code>[n]</code> after it makes room for n structs.</li>
+  <li>Members can be numbers, <code>_Bool</code>, pointers (given as addresses) and fixed arrays. Structs inside structs, unions, and structs passed or returned by value are not supported.</li>
+  <li>The result shows a row per struct and a column per member; changed members show <i>before → after</i>. An expected value such as <code>{{"Ann", 95}, {"Bob", 80}}</code> checks only the members it gives.</li>
+  <li>A packed struct's members can be at odd addresses: <code>ldr r3, [r0, #1]</code> loads one, as unaligned loads work on ARMv7 Linux (unless Strict Alignment is on).</li>
+</ul>
 <h3>Expected results</h3>
 <p>A case can also say what the call should produce, so it checks itself. Type the expected value in <b>Expected … result</b> below the arguments, and for a pointer that is not <code>const</code>, its expected contents in the box under its argument: <code>{0, 1, 4, 9}</code>, or <code>"text"</code> for a char buffer. Only the elements you list are compared, from the first. After each call the result shows ✔ or ✘ for every check, with the expected and actual values, and History counts how many passed.</p>
 <ul>

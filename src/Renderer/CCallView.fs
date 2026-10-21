@@ -108,6 +108,8 @@ let private valueHint t =
 
 let private ptrHint kind elem =
     match kind with
+    | PArray when (match elem with | CStruct _ -> true | _ -> false) ->
+        sprintf "structs, e.g. {{1, 2}, {3, 4}}; add [n] for a buffer of n (%s, %d bytes each)" (typeName elem) (sizeOf elem)
     | PArray ->
         let example = match elem with | CFloat _ -> "{1.5, -2, 0.25}" | _ -> "{10, -2, 0x30}"
         sprintf "elements, e.g. %s; add [n] for a buffer of n (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
@@ -227,7 +229,11 @@ and private paramRow (proto : Prototype) (i : int) (p : CParam) =
                 | CPtr(_, false) ->
                     let e = document.createElement_input()
                     e.value <- expectOf proto p.PName
-                    e.placeholder <- (if isCharLike elem then "expected after the call: {…} or \"text\" (optional)" else "expected after the call, e.g. {0, 1, 4} (optional)")
+                    e.placeholder <-
+                        (match elem with
+                         | CStruct _ -> "expected after the call, e.g. {{11, 22}}; members left out are not checked (optional)"
+                         | _ when isCharLike elem -> "expected after the call: {…} or \"text\" (optional)"
+                         | _ -> "expected after the call, e.g. {0, 1, 4} (optional)")
                     e.className <- "ccall-input ccall-expect"
                     e.oninput <- fun _ -> setExpect proto p.PName e.value
                     [ e :> HTMLElement ]
@@ -278,7 +284,7 @@ and private resultView (setup : CallSetup) (res : CallResult) =
                 txt "div" "ccall-buf-head"
                     (sprintf "%s: %s%s[%d] at 0x%X" b.BParam (if b.BConst then "const " else "") (typeName b.BElem) b.BCount b.BAddr)
             let rows =
-                List.zip b.BInitial br.After
+                (match b.BElem with | CStruct _ -> [] | _ -> List.zip b.BInitial br.After)
                 |> List.mapi (fun i (before, after) ->
                     let changed = List.contains i br.Changed
                     el "tr" (if changed then "ccall-changed" else "") [
@@ -286,7 +292,25 @@ and private resultView (setup : CallSetup) (res : CallResult) =
                         txt "td" "" (formatElem b.BElem before)
                         txt "td" "" (formatElem b.BElem after) ])
             let table =
-                el "table" "ccall-buf" (el "tr" "" [ txt "th" "" "#"; txt "th" "" "before"; txt "th" "" "after" ] :: rows)
+                match b.BElem with
+                | CStruct sd ->
+                    // a row per struct, a column per member; changed members show before -> after
+                    let n = (structSlots sd).Length
+                    let starts = sd.Members |> List.scan (fun i m -> i + defaultArg m.Count 1) 0
+                    let slice (vs : int64 list) i = vs |> List.skip (i * n) |> List.truncate n
+                    let structRows =
+                        [ for i in 0 .. b.BCount - 1 ->
+                            let before, after = structMemberTexts sd (slice b.BInitial i), structMemberTexts sd (slice br.After i)
+                            let cells =
+                                sd.Members |> List.mapi (fun k m ->
+                                    let slots = [ starts.[k] .. starts.[k + 1] - 1 ] |> List.map (fun j -> i * n + j)
+                                    if slots |> List.exists (fun j -> List.contains j br.Changed) then
+                                        txt "td" "ccall-changed" (sprintf "%s \u2192 %s" before.[k] after.[k])
+                                    else txt "td" "" after.[k])
+                            el "tr" "" (txt "td" "" (string i) :: cells) ]
+                    el "table" "ccall-buf ccall-struct"
+                        (el "tr" "" (txt "th" "" "#" :: (sd.Members |> List.map (fun m -> txt "th" "" m.MName))) :: structRows)
+                | _ -> el "table" "ccall-buf" (el "tr" "" [ txt "th" "" "#"; txt "th" "" "before"; txt "th" "" "after" ] :: rows)
             // a char buffer as text, up to its first 0
             let asText =
                 if isCharLike b.BElem && b.BCount > 0 then
@@ -312,7 +336,7 @@ and private helpView () =
     el "div" "ccall-help" [
         txt "p" "" "Declare a function with a C prototype in a comment, then call it from here:"
         txt "pre" "" "@ C: extern int sum_array(const int *a, int n);\n        .global sum_array\nsum_array:\n        ...\n        bx lr"
-        txt "p" "" "Types: char, signed/unsigned char, short, int, long, unsigned, int8_t..uint32_t, size_t, _Bool, float, double, pointers to these or void (const allowed), and arrays as pointers. Returns: void, the integer types, _Bool, float, double and pointers."
+        txt "p" "" "Types: char, signed/unsigned char, short, int, long, unsigned, long long, int8_t..uint64_t, size_t, _Bool, float, double, pointers to these or void (const allowed), arrays as pointers, and pointers to structs declared in a comment such as @ C: struct point { int x; int y; }; (add __attribute__((packed)) for a packed struct). Returns: void, the integer types, _Bool, float, double and pointers."
         txt "p" "" "Arguments are passed as the hard-float AAPCS (armv7hf) requires: integers and pointers in r0-r3, float in s0-s15 and double in d0-d7, the rest on the stack. Results come back in r0, s0 or d0. Pointer arguments are built in memory at 0x10000000." ]
 
 /// Case row: pick a saved set of arguments, save the current ones under a new name, or delete one
@@ -398,6 +422,12 @@ and render () =
             let signature =
                 let ps = proto.Params |> List.map (fun p -> typeName p.PType + " " + p.PName) |> String.concat ", "
                 txt "div" "ccall-signature" (sprintf "%s %s(%s)" (typeName proto.Ret) proto.FName (if ps = "" then "void" else ps))
+            // the layout of each struct the function uses
+            let layouts =
+                (proto.Ret :: (proto.Params |> List.map (fun p -> p.PType)))
+                |> List.choose (function | CPtr(CStruct sd, _) -> Some sd | _ -> None)
+                |> List.distinctBy (fun sd -> sd.SName)
+                |> List.map (fun sd -> txt "div" "ccall-layout" (layoutText sd))
             let table =
                 match proto.Params with
                 | [] -> txt "div" "ccall-raw" "no parameters"
@@ -439,5 +469,5 @@ and render () =
                 | h ->
                     [ txt "div" "ccall-buf-head" "History"
                       txt "pre" "ccall-history" (h |> List.map (String.concat "\n") |> String.concat "\n") ]
-            [ chooser; caseRow; signature; table ] @ expectedResult @ [ buttons ] @ status @ errors @ result @ hist
+            [ chooser; caseRow; signature ] @ layouts @ [ table ] @ expectedResult @ [ buttons ] @ status @ errors @ result @ hist
     (header :: protoErrors @ body) |> List.iter (fun e -> root.appendChild e |> ignore)

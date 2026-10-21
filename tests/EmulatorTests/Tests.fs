@@ -1819,6 +1819,105 @@ my_strcat:
         expectEq "array" (parseArgText (CPtr(CIntT(CInt32 true), false)) "{1, 2} [4]") (Ok(Sized(Elements [ "1"; "2" ], 4)))
         @ expectEq "plain brackets still an address" (parseArgText (CPtr(CIntT(CInt32 true), false)) "table[2]") (Ok(Address "table[2]"))
         @ callFails "@ C: void f(char *s);\n.global f\nf:\nbx lr" [ "\"Hello\" [3]" ] "do not fit in a buffer of 3"
+    "struct: layouts, natural and packed", fun () ->
+        let layouts (decls : string list) =
+            let defs, errs = findStructs (decls |> List.map (fun d -> "@ C: " + d))
+            (defs |> List.map layoutText), errs
+        expectEq "natural" (layouts [ "struct mix { char c; int x; double d; short s; };" ])
+            ([ "struct mix: 24 bytes, aligned to 8: char c at 0, int x at 4, double d at 8, short s at 16" ], [])
+        @ expectEq "packed after" (layouts [ "struct pmix { char c; int x; double d; short s; } __attribute__((packed));" ])
+            ([ "struct pmix: 15 bytes, packed: char c at 0, int x at 1, double d at 5, short s at 13" ], [])
+        @ expectEq "typedef packed before" (layouts [ "typedef struct __attribute__((packed)) { char c; int x; } pk_t;" ])
+            ([ "pk_t: 5 bytes, packed: char c at 0, int x at 1" ], [])
+        @ expectEq "arrays and several declarators" (layouts [ "struct student { char name[16]; int score; double gpa; };"; "struct point { int x, y; };" ])
+            ([ "struct student: 32 bytes, aligned to 8: char name[16] at 0, int score at 16, double gpa at 24"
+               "struct point: 8 bytes, aligned to 4: int x at 0, int y at 4" ], [])
+        @ expectEq "over several lines" (findPrototypes [ "@ C: struct point {"; "@ C:   int x;"; "@ C:   int y;"; "@ C: };"; "@ C: extern void f(struct point *p);" ]
+                                         |> List.map (function | Ok p -> typeName p.Params.Head.PType | Error(_, e) -> e)) [ "struct point *" ]
+    "struct: errors", fun () ->
+        let errs lines = findPrototypes (lines |> List.map (fun l -> "@ C: " + l)) |> List.choose (function | Error(_, e) -> Some e | _ -> None)
+        let has (frag : string) (es : string list) = if es |> List.exists (fun e -> e.Contains frag) then [] else [ sprintf "no '%s' in %A" frag es ]
+        has "structs inside structs" (errs [ "struct a { int x; };"; "struct b { struct a inner; };" ])
+        @ has "passed by pointer" (errs [ "struct p { int x; };"; "void f(struct p v);" ])
+        @ has "returning a struct" (errs [ "struct p { int x; };"; "struct p f(int a);" ])
+        @ has "unknown struct q" (errs [ "void f(struct q *v);" ])
+        @ has "unions are not supported" (errs [ "union u { int x; float f; };" ])
+    "struct: arrays of structs in and out", fun () ->
+        let translate = """@ C: struct point { int x; int y; };
+@ C: extern void translate(struct point *pts, int n, int dx, int dy);
+@ C: extern int *second_y(struct point *pts);
+@ C: extern struct point *second(struct point *pts);
+        .global translate, second_y, second
+translate:
+1:      ldr r12, [r0]
+        add r12, r12, r2
+        str r12, [r0]
+        ldr r12, [r0, #4]
+        add r12, r12, r3
+        str r12, [r0, #4]
+        add r0, r0, #8
+        subs r1, r1, #1
+        bne 1b
+        bx lr
+second_y:
+        add r0, r0, #12
+        bx lr
+second:
+        add r0, r0, #8
+        bx lr"""
+        let lim = reLoadProgram (srcLines translate)
+        let protos = findPrototypes (srcLines translate) |> List.choose (function | Ok p -> Some p | _ -> None)
+        let callOf name args =
+            let proto = protos |> List.find (fun p -> p.FName = name)
+            let args = List.map2 (fun (p : CParam) t -> match parseArgText p.PType t with | Ok a -> a | Error e -> failwith e) proto.Params args
+            callFunction lim (srcLines translate) proto args 10000L
+        match callOf "translate" [ "{{1, 2}, {3, 4}}"; "2"; "10"; "20" ], callOf "second_y" [ "{{1, 2}, {3, 4}}" ], callOf "second" [ "{{1, 2}, {3, 4}}" ], callOf "translate" [ "{{1, 2}} [3]"; "3"; "1"; "1" ] with
+        | Ok(s1, r1), Ok(_, r2), Ok(_, r3), Ok(s4, r4) ->
+            let check txt = checkExpectations s1 r1 { Return = ""; After = Map.ofList [ "pts", txt ] } |> List.map (fun c -> c.Passed, c.Detail)
+            expectEq "summary" (formatCall s1 r1 |> List.item 2) "  pts[2]: {*{11, 22}, *{13, 24}}"
+            @ expectEq "pass" (check "{{11, 22}, {13, 24}}") [ true, "{{11, 22}, {13, 24}}, as expected" ]
+            @ expectEq "partial" (check "{{11}, {13, 25}}") [ false, "pts[1].y: expected 25, got 24" ]
+            @ expectEq "field pointer" r2.ReturnText "&pts[1].y -> 4 (0x4)"
+            @ expectEq "struct pointer" r3.ReturnText "&pts[1] -> {3, 4}"
+            @ expectEq "sized" (s4.Buffers.Head.BCount, s4.Buffers.Head.BInitial) (3, [ 1L; 2L; 0L; 0L; 0L; 0L ])
+            @ expectEq "sized after" (formatCall s4 r4 |> List.item 2) "  pts[3]: {*{2, 3}, *{1, 1}, *{1, 1}}"
+        | e1, e2, e3, e4 -> [ sprintf "%A %A %A %A" e1 e2 e3 e4 ]
+    "struct: char arrays, doubles, and packed structs read unaligned", fun () ->
+        let students = """@ C: struct student { char name[16]; int score; double gpa; };
+@ C: extern int total_score(const struct student *s, int n);
+        .global total_score
+total_score:
+        mov r2, #0
+1:      ldr r3, [r0, #16]
+        add r2, r2, r3
+        add r0, r0, #32
+        subs r1, r1, #1
+        bne 1b
+        mov r0, r2
+        bx lr"""
+        let packed = """@ C: typedef struct __attribute__((packed)) { char tag; int value; } item_t;
+@ C: extern int sum_values(const item_t *items, int n);
+        .global sum_values
+sum_values:
+        mov r2, #0
+1:      ldr r3, [r0, #1]
+        add r2, r2, r3
+        add r0, r0, #5
+        subs r1, r1, #1
+        bne 1b
+        mov r0, r2
+        bx lr"""
+        match cCall students [ "{{\"Ann\", 90, 3.5}, {\"Bob\", 75, 2.8}}"; "2" ], cCall packed [ "{{'a', 100}, {'b', 23}}"; "2" ] with
+        | Ok(s1, r1), Ok(_, r2) ->
+            expectEq "total" r1.ReturnValue (Some 165L)
+            @ expectEq "students" (formatCall s1 r1 |> List.item 2) "  s[2]: {{\"Ann\", 90, 3.5}, {\"Bob\", 75, 2.8}}"
+            @ expectEq "packed" r2.ReturnValue (Some 123L)
+            @ expectEq "problems" (r1.Problems @ r2.Problems) []
+        | e1, e2 -> [ sprintf "%A %A" e1 e2 ]
+    "struct: bad initializers", fun () ->
+        let pts = "@ C: struct point { int x; int y; };\n@ C: extern void f(struct point *p);\n.global f\nf:\nbx lr"
+        callFails pts [ "{{1, 2, 3}}" ] "has only 2 members"
+        @ callFails pts [ "{{1, 2}, {3, 4}} [1]" ] "do not fit"
     "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with
