@@ -286,7 +286,22 @@
   <tr><td class="mono">float, double</td><td>A number such as <code>1.5</code>, <code>-0.25</code> or <code>3e8</code>. Arrays of them take elements such as <code>{1.5, 2, 0.1}</code>.</td></tr>
   <tr><td class="mono">int *a, const short *p, int a[]</td><td><b>array</b>: elements such as <code>{10, 20, 30}</code>. <b>output buffer</b>: a number of zeroed elements. <b>address</b>: a label, an address or <code>NULL</code>.</td></tr>
   <tr><td class="mono">char *s, const char *s, void *p</td><td>The same, or <b>string</b>: text such as <code>hello\n</code>. A zero byte is added.</td></tr>
+  <tr><td class="mono">a buffer with room to spare</td><td>Add the size after an array or a quoted string: <code>"Hello, " [32]</code> puts the string in a 32-byte buffer, and <code>{1, 2, 3} [10]</code> gives 10 elements. The rest is zeroed.</td></tr>
 </table>
+<p>For example, to show <code>strcat</code>, give <code>dest</code> the string <code>"Hello, " [32]</code> and <code>src</code> the string <code>world</code>, and expect <code>dest</code> to hold <code>"Hello, world"</code>. Char buffers are also shown as text before and after the call.</p>
+<pre><span class="c">@ C: extern char *my_strcat(char *dest, const char *src);</span>
+        <span class="d">.global</span> my_strcat
+<span class="l">my_strcat:</span>
+        <span class="k">mov</span>     <span class="r">r2</span>, <span class="r">r0</span>              <span class="c">@ keep dest to return it</span>
+<span class="l">1:</span>      <span class="k">ldrb</span>    <span class="r">r3</span>, [<span class="r">r2</span>]            <span class="c">@ find the end of dest</span>
+        <span class="k">cmp</span>     <span class="r">r3</span>, <span class="n">#0</span>
+        <span class="k">addne</span>   <span class="r">r2</span>, <span class="r">r2</span>, <span class="n">#1</span>
+        <span class="k">bne</span>     1b
+<span class="l">2:</span>      <span class="k">ldrb</span>    <span class="r">r3</span>, [<span class="r">r1</span>], <span class="n">#1</span>        <span class="c">@ copy src, including its 0</span>
+        <span class="k">strb</span>    <span class="r">r3</span>, [<span class="r">r2</span>], <span class="n">#1</span>
+        <span class="k">cmp</span>     <span class="r">r3</span>, <span class="n">#0</span>
+        <span class="k">bne</span>     2b
+        <span class="k">bx</span>      <span class="r">lr</span></pre>
 <p>Arrays and strings are placed in memory starting at <code>0x10000000</code>.</p>
 <h3>Checks after the call</h3>
 <ul>

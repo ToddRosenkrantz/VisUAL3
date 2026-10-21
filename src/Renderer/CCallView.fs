@@ -110,18 +110,22 @@ let private ptrHint kind elem =
     match kind with
     | PArray ->
         let example = match elem with | CFloat _ -> "{1.5, -2, 0.25}" | _ -> "{10, -2, 0x30}"
-        sprintf "elements, e.g. %s (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
-    | PString -> "text, e.g. hello\\n (a 0 byte is added)"
+        sprintf "elements, e.g. %s; add [n] for a buffer of n (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
+    | PString -> "text, e.g. hello\\n (a 0 byte is added); \"Hello, \" [32] for a 32-byte buffer"
     | POut -> "number of zeroed elements, e.g. 4"
     | PAddr -> "a label from the program, an address, or NULL"
 
 /// Turn a remembered input into the argument for CCall
-let private argOf (p : CParam) (inp : ParamInput) : Result<ArgInput, string> =
+let rec private argOf (p : CParam) (inp : ParamInput) : Result<ArgInput, string> =
     let t = inp.Text.Trim()
     let need what = Error(sprintf "%s: enter %s" p.PName what)
     match p.PType, inp.Kind with
     | CIntT CBool, _ -> Ok(Value(if t = "1" then "1" else "0"))
     | (CIntT _ | CVoid | CFloat _), _ -> if t = "" then need "a value" else Ok(Value t)
+    // "Hello, " [32] or {1, 2} [8]: the contents in a buffer of n elements
+    | CPtr _, (PArray | PString) when (splitSize t).IsSome ->
+        let inner, n = (splitSize t).Value
+        argOf p { inp with Text = inner } |> Result.map (fun a -> Sized(a, n))
     | CPtr _, PArray ->
         let inner = if t.StartsWith "{" && t.EndsWith "}" then t.Substring(1, t.Length - 2) else t
         Ok(Elements(GnuLex.splitArgs inner))
@@ -283,7 +287,20 @@ and private resultView (setup : CallSetup) (res : CallResult) =
                         txt "td" "" (formatElem b.BElem after) ])
             let table =
                 el "table" "ccall-buf" (el "tr" "" [ txt "th" "" "#"; txt "th" "" "before"; txt "th" "" "after" ] :: rows)
-            el "div" "" [ head; (if b.BCount = 0 then txt "div" "ccall-raw" "(empty)" else table) ])
+            // a char buffer as text, up to its first 0
+            let asText =
+                if isCharLike b.BElem && b.BCount > 0 then
+                    let text (vs : int64 list) =
+                        let chars = vs |> List.takeWhile (fun v -> v <> 0L)
+                        let esc (v : int64) =
+                            match v &&& 0xFFL with
+                            | 10L -> "\\n" | 9L -> "\\t" | 34L -> "\\\"" | 92L -> "\\\\"
+                            | c when c >= 32L && c < 127L -> string (char (int c))
+                            | c -> sprintf "\\x%02X" c
+                        "\"" + (chars |> List.map esc |> String.concat "") + "\"" + (if chars.Length = vs.Length then " (no 0 byte)" else "")
+                    [ txt "div" "ccall-astext" (sprintf "as text: %s \u2192 %s" (text b.BInitial) (text br.After)) ]
+                else []
+            el "div" "" ([ head ] @ asText @ [ (if b.BCount = 0 then txt "div" "ccall-raw" "(empty)" else table) ]))
     let problems = res.Problems |> List.map (fun pr -> txt "div" "ccall-problem" ("⚠ " + pr))
     let checks =
         lastChecks |> List.map (fun c ->

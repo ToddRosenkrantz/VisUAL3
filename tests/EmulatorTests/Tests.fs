@@ -1790,6 +1790,35 @@ sum64:
         @ expectEq "string" (check hi [ "[4]" ] "" [ "s", "\"hi\"" ] |> List.map (fun (_, p, _) -> p)) [ true ]
         @ expectEq "did not return" (check noReturn [ "1" ] "1" [] |> List.map (fun (w, p, _) -> w, p)) [ "call", false ]
         @ expectEq "invalid" (check sumArray [ "{1}"; "1" ] "abc" [] |> List.map (fun (_, p, _) -> p)) [ false ]
+    "sized buffers: strcat into a 32-byte buffer", fun () ->
+        let strcat = """@ C: extern char *my_strcat(char *dest, const char *src);
+        .global my_strcat
+my_strcat:
+        mov     r2, r0
+1:      ldrb    r3, [r2]
+        cmp     r3, #0
+        addne   r2, r2, #1
+        bne     1b
+2:      ldrb    r3, [r1], #1
+        strb    r3, [r2], #1
+        cmp     r3, #0
+        bne     2b
+        bx      lr"""
+        match cCall strcat [ "\"Hello, \" [32]"; "\"world\"" ] with
+        | Ok(setup, res) ->
+            let dest = res.BufferResults |> List.find (fun b -> b.Buffer.BParam = "dest")
+            expectEq "dest size" dest.Buffer.BCount 32
+            @ expectEq "returns dest" res.ReturnText "&dest[0] -> 72 'H'"
+            @ expectEq "check" (checkExpectations setup res { Return = ""; After = Map.ofList [ "dest", "\"Hello, world\"" ] } |> List.map (fun c -> c.Passed, c.Detail))
+                [ true, "\"Hello, world\", as expected" ]
+            @ expectEq "check fails" (checkExpectations setup res { Return = ""; After = Map.ofList [ "dest", "\"Hello world\"" ] } |> List.map (fun c -> c.Detail))
+                [ "expected \"Hello world\", got \"Hello, world\"" ]
+            @ expectEq "problems" res.Problems []
+        | Error e -> [ e ]
+    "sized buffers: arrays, and too small", fun () ->
+        expectEq "array" (parseArgText (CPtr(CIntT(CInt32 true), false)) "{1, 2} [4]") (Ok(Sized(Elements [ "1"; "2" ], 4)))
+        @ expectEq "plain brackets still an address" (parseArgText (CPtr(CIntT(CInt32 true), false)) "table[2]") (Ok(Address "table[2]"))
+        @ callFails "@ C: void f(char *s);\n.global f\nf:\nbx lr" [ "\"Hello\" [3]" ] "do not fit in a buffer of 3"
     "float: bad float argument", fun () -> callFails "@ C: float f(float x);\n.global f\nf:\nbx lr" [ "1.2.3" ] "not a valid floating point"
     "call: formatted summary", fun () ->
         match cCall sumArray [ "{1, 2, 3}"; "3" ] with

@@ -444,6 +444,7 @@ div.after {
 .ccall-case-btn { font-size: 12px; padding: 1px 8px; }
 .ccall-expect { background: #fbfaf2; }
 .ccall-expected-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; white-space: nowrap; }
+.ccall-astext { font-family: "Fira Code", monospace; font-size: 12px; margin: 2px 0 4px; white-space: pre-wrap; }
 .ccall-check-pass { color: #1d7a1d; font-weight: bold; margin: 2px 0; }
 .ccall-check-fail { color: #b3261e; font-weight: bold; margin: 2px 0; }
 .ccall-signature { font-family: "Fira Code", monospace; font-size: 13px; background: #fff; border: 1px solid #bbb;

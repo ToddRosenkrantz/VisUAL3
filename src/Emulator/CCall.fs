@@ -282,12 +282,28 @@ type ArgInput =
     | Str of string // char pointer to "text" (with terminating 0)
     | OutBuffer of int // pointer to n zeroed elements
     | Address of string // pointer given directly: NULL, a label, or an address
+    | Sized of ArgInput * int // an array or string in a buffer of n elements, the rest zeroed: "Hi" [32]
+
+/// "<array or string> [n]": the text before the size, and the size
+let splitSize (s : string) =
+    let s = s.Trim()
+    match s.LastIndexOf '[' with
+    | i when i > 0 && s.EndsWith "]" ->
+        let before = s.Substring(0, i).Trim()
+        match System.Int32.TryParse(s.Substring(i + 1, s.Length - i - 2).Trim()) with
+        | true, n when n >= 0 && (before.EndsWith "\"" || before.EndsWith "}") -> Some(before, n)
+        | _ -> None
+    | _ -> None
 
 /// Parse the text typed for a parameter of type t:
-/// numbers for values; for pointers {a, b}, "text", [n] (zeroed), NULL, label or address
-let parseArgText (t : CType) (txt : string) : Result<ArgInput, string> =
+/// numbers for values; for pointers {a, b}, "text", [n] (zeroed), NULL, label or address;
+/// {a, b} [n] or "text" [n] for a buffer of n elements
+let rec parseArgText (t : CType) (txt : string) : Result<ArgInput, string> =
     let s = txt.Trim()
     match t with
+    | CPtr _ when (splitSize s).IsSome ->
+        let inner, n = (splitSize s).Value
+        parseArgText t inner |> Result.map (fun a -> Sized(a, n))
     | CPtr _ when s.StartsWith "{" ->
         if s.EndsWith "}" then Ok(Elements(GnuLex.splitArgs (s.Substring(1, s.Length - 2))))
         else Error "missing '}'"
@@ -464,28 +480,33 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                 let where msg = sprintf "%s: %s" p.PName msg
                 let word (r : Result<uint32, string>) = r |> Result.map int64
                 match p.PType, a with
-                | CPtr _, Value _ | (CVoid | CIntT _ | CFloat _), (Elements _ | Str _ | OutBuffer _ | Address _) ->
+                | CPtr _, Value _ | (CVoid | CIntT _ | CFloat _), (Elements _ | Str _ | OutBuffer _ | Address _ | Sized _) ->
                     Error(where "wrong kind of argument for this type")
                 | CFloat d, Value v -> evalFloat d v |> Result.mapError where
                 | CIntT(CInt64 s), Value v -> eval64 s v |> Result.mapError where
                 | (CVoid | CIntT _) as t, Value v -> evalValue syms t v |> Result.map (extendValue t) |> word |> Result.mapError where
-                | CPtr(elem, isConst), Elements es ->
+                | CPtr(elem, isConst), (Elements _ | Str _ | OutBuffer _ | Sized _) ->
                     let one e =
                         match elem with
                         | CFloat d -> evalFloat d e
                         | CIntT(CInt64 s) -> eval64 s e
                         | _ -> evalValue syms elem e
-                    let rec evalAll acc es =
-                        match es with
-                        | [] -> Ok(List.rev acc)
-                        | e :: rest -> one e |> Result.bind (fun v -> evalAll (v :: acc) rest)
-                    evalAll [] es |> Result.map (alloc p elem isConst) |> word |> Result.mapError where
-                | CPtr((CIntT(CChar _) | CVoid) as elem, isConst), Str s ->
-                    GnuLex.parseStringLiteral s
-                    |> Result.map (fun bytes -> alloc p elem isConst ((bytes |> List.map int64) @ [ 0L ]))
-                    |> word |> Result.mapError where
-                | CPtr _, Str _ -> Error(where "a string can only be passed to a char * parameter")
-                | CPtr(elem, isConst), OutBuffer n -> Ok(int64 (alloc p elem isConst (List.replicate n 0L)))
+                    /// the initial contents of the buffer
+                    let rec contents (a : ArgInput) : Result<int64 list, string> =
+                        match elem, a with
+                        | _, Elements es ->
+                            es |> List.fold (fun acc e -> acc |> Result.bind (fun vs -> one e |> Result.map (fun v -> vs @ [ v ]))) (Ok [])
+                        | (CIntT(CChar _) | CVoid), Str s -> GnuLex.parseStringLiteral s |> Result.map (fun bytes -> (bytes |> List.map int64) @ [ 0L ])
+                        | _, Str _ -> Error "a string can only be passed to a char * parameter"
+                        | _, OutBuffer n -> Ok(List.replicate n 0L)
+                        | _, Sized(inner, n) ->
+                            contents inner
+                            |> Result.bind (fun vs ->
+                                if vs.Length > n then
+                                    Error(sprintf "%d %s do not fit in a buffer of %d" vs.Length (match inner with | Str _ -> "bytes (with the terminating 0)" | _ -> "elements") n)
+                                else Ok(vs @ List.replicate (n - vs.Length) 0L))
+                        | _, _ -> Error "wrong kind of argument for this type"
+                    contents a |> Result.map (alloc p elem isConst >> int64) |> Result.mapError where
                 | CPtr _, Address s when s.Trim() = "NULL" -> Ok 0L
                 | CPtr(elem, _), Address s -> evalValue syms (CIntT(CInt32 false)) s |> Result.mapError where
             let results = List.map2 argWord proto.Params args
@@ -712,7 +733,17 @@ let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) 
                           |> List.fold (fun acc r -> match acc, r with
                                                      | Ok xs, Ok x -> Ok(xs @ [ x ])
                                                      | Error e, _ | _, Error e -> Error e) (Ok [])
-                  let show vs = vs |> List.map (formatValue elem >> fun s -> s.Split(' ').[0]) |> String.concat ", "
+                  let asString = t.StartsWith "\""
+                  /// elements as {1, 2, 3}, or as "text" when a string was expected
+                  let show (vs : int64 list) =
+                      if asString then
+                          let esc (v : int64) =
+                              match v &&& 0xFFL with
+                              | 0L -> "" | 10L -> "\\n" | 9L -> "\\t" | 34L -> "\\\"" | 92L -> "\\\\"
+                              | c when c >= 32L && c < 127L -> string (char (int c))
+                              | c -> sprintf "\\x%02X" c
+                          "\"" + (vs |> List.takeWhile (fun v -> v <> 0L) |> List.map esc |> String.concat "") + "\""
+                      else "{" + (vs |> List.map (formatValue elem >> fun s -> s.Split(' ').[0]) |> String.concat ", ") + "}"
                   match expected with
                   | Error msg -> yield { What = pname; Passed = false; Detail = "the expected contents are not valid: " + msg }
                   | Ok e when e.Length > br.After.Length ->
@@ -721,8 +752,8 @@ let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) 
                       let actual = List.truncate e.Length br.After
                       let ok = List.forall2 (sameValue elem) e actual
                       yield { What = pname; Passed = ok
-                              Detail = (if ok then sprintf "{%s}, as expected" (show actual)
-                                        else sprintf "expected {%s}, got {%s}" (show e) (show actual)) } ]
+                              Detail = (if ok then sprintf "%s, as expected" (show actual)
+                                        else sprintf "expected %s, got %s" (show e) (show actual)) } ]
 
 /// Prepare, run (up to maxSteps instructions) and decode a call
 let callFunction (lim : LoadImage) (sourceLines : string list) (proto : Prototype) (args : ArgInput list) (maxSteps : int64) =
