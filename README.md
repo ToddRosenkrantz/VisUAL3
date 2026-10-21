@@ -6,7 +6,7 @@ VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLond
 
 ## Running it
 
-Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0-dev.4](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0-dev.4)), or [build it](#packaging). Unzip it anywhere and run:
+Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0-dev.5](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0-dev.5)), or [build it](#packaging). Unzip it anywhere and run:
 
 | Platform | Run |
 |---|---|
