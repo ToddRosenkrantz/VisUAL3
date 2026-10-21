@@ -2,7 +2,7 @@
 
 Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019), the version it was forked from. Newest first. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases). Older development releases are removed when a new one is published; their entries stay here.
 
-## Unreleased
+## 3.0.0-dev.4 (2026-10-20)
 
 ### Added
 
