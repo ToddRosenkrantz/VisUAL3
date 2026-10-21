@@ -1038,6 +1038,29 @@ let private sameValue (t : CType) (expected : int64) (actual : int64) =
         || abs (e - a) <= (if d then 1e-12 else 1e-6) * max 1.0 (abs e)
     | _ -> expected = actual
 
+/// An address written as an argument buffer: s, &s[1], &s[1].score or &a[2]; None if it isn't one
+let private bufferAddress (setup : CallSetup) (txt : string) : Result<int64, string> option =
+    let t = txt.Trim().Replace(" ", "")
+    let body = if t.StartsWith "&" then t.Substring 1 else t
+    let name, rest = match body.IndexOf '[' with | -1 -> body, "" | i -> body.Substring(0, i), body.Substring i
+    match setup.Buffers |> List.tryFind (fun b -> b.BParam = name) with
+    | None -> None
+    | Some b when rest = "" -> Some(Ok(int64 b.BAddr))
+    | Some b ->
+        let close = rest.IndexOf ']'
+        match (if close > 1 then System.Int32.TryParse(rest.Substring(1, close - 1)) else (false, 0)) with
+        | true, i when i >= 0 && i <= b.BCount ->
+            let field = rest.Substring(close + 1)
+            let elemAddr = int64 b.BAddr + int64 (i * sizeOf b.BElem)
+            match b.BElem, field with
+            | _, "" -> Some(Ok elemAddr)
+            | CStruct sd, f when f.StartsWith "." ->
+                match structSlots sd |> List.tryFind (fun (label, _, _) -> label = f.Substring 1) with
+                | Some(_, _, off) -> Some(Ok(elemAddr + int64 off))
+                | None -> Some(Error(sprintf "%s has no member %s" sd.SName (f.Substring 1)))
+            | _ -> Some(Error(sprintf "'%s' is not an element or member of %s" txt name))
+        | _ -> Some(Error(sprintf "%s has %d elements: '%s' is outside it" name b.BCount txt))
+
 /// Check a call's result against what the case expects
 let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) : CheckResult list =
     let syms = setup.Run.st |> Map.map (fun _ (v, _) -> v)
@@ -1048,12 +1071,18 @@ let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) 
     else
         [ if hasReturn then
               let t = setup.Proto.Ret
-              match evalExpected syms t ex.Return, res.ReturnValue with
+              // a pointer result can be expected as &s[1], and is shown that way
+              let expected =
+                  match t, bufferAddress setup ex.Return with
+                  | CPtr _, Some r -> r
+                  | _ -> evalExpected syms t ex.Return
+              let show v = match t with | CPtr _ -> describeAddress setup (uint32 v) | _ -> formatValue t v
+              match expected, res.ReturnValue with
               | Ok e, Some a ->
                   let ok = sameValue t e a
                   yield { What = "result"; Passed = ok
-                          Detail = (if ok then sprintf "%s, as expected" (formatValue t a)
-                                    else sprintf "expected %s, got %s" (formatValue t e) (formatValue t a)) }
+                          Detail = (if ok then sprintf "%s, as expected" (show a)
+                                    else sprintf "expected %s, got %s" (show e) (show a)) }
               | Error msg, _ -> yield { What = "result"; Passed = false; Detail = "the expected value is not valid: " + msg }
               | _, None -> ()
           for KeyValue(pname, text) in wanted do

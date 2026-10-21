@@ -277,7 +277,7 @@
 <h3>Expected results</h3>
 <p>A case can also say what the call should produce, so it checks itself. Type the expected value in <b>Expected … result</b> below the arguments, and for a pointer that is not <code>const</code>, its expected contents in the box under its argument: <code>{0, 1, 4, 9}</code>, or <code>"text"</code> for a char buffer. Only the elements you list are compared, from the first. After each call the result shows ✔ or ✘ for every check, with the expected and actual values, and History counts how many passed.</p>
 <ul>
-  <li>Integer, pointer and <code>_Bool</code> results must match exactly. A pointer can be expected as a label, an address or <code>NULL</code>.</li>
+  <li>Integer, pointer and <code>_Bool</code> results must match exactly. A pointer can be expected as a label, an address, <code>NULL</code>, or a place in an argument array: <code>&amp;s[1]</code>, <code>&amp;s[1].score</code>, or just <code>s</code>.</li>
   <li><code>float</code> and <code>double</code> results match if they are within a relative 10<sup>−6</sup> (double: 10<sup>−12</sup>) of the expected value, so ordinary rounding differences pass.</li>
   <li>Expectations are part of the case and are saved in the <code>.ccall</code> file.</li>
 </ul>

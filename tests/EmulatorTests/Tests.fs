@@ -1914,6 +1914,39 @@ sum_values:
             @ expectEq "packed" r2.ReturnValue (Some 123L)
             @ expectEq "problems" (r1.Problems @ r2.Problems) []
         | e1, e2 -> [ sprintf "%A %A" e1 e2 ]
+    "struct: find a struct by name, expecting &s[1] or NULL", fun () ->
+        let find = """@ C: struct student { char name[16]; int score; double gpa; };
+@ C: extern struct student *find_student(struct student *s, int n, const char *name);
+        .global find_student
+find_student:
+        push    {r4, r5}
+1:      cmp     r1, #0
+        moveq   r0, #0
+        beq     4f
+        mov     r3, r0
+        mov     r12, r2
+2:      ldrb    r4, [r3], #1
+        ldrb    r5, [r12], #1
+        cmp     r4, r5
+        bne     3f
+        cmp     r4, #0
+        bne     2b
+        b       4f
+3:      add     r0, r0, #32
+        sub     r1, r1, #1
+        b       1b
+4:      pop     {r4, r5}
+        bx      lr"""
+        let students = "{{\"Ann\", 90, 3.5}, {\"Bob\", 75, 2.8}}"
+        let check name expected =
+            match cCall find [ students; "2"; "\"" + name + "\"" ] with
+            | Ok(setup, res) -> checkExpectations setup res { Return = expected; After = Map.empty } |> List.map (fun c -> c.Passed, c.Detail)
+            | Error e -> [ false, e ]
+        expectEq "Bob" (check "Bob" "&s[1]") [ true, "&s[1], as expected" ]
+        @ expectEq "Bob wrong" (check "Bob" "&s[0]") [ false, "expected &s[0], got &s[1]" ]
+        @ expectEq "missing" (check "Cy" "NULL") [ true, "NULL, as expected" ]
+        @ expectEq "field" (check "Ann" "&s[0].score" |> List.map fst) [ false ]
+        @ expectEq "bad member" (check "Ann" "&s[0].age" |> List.map snd) [ "the expected value is not valid: struct student has no member age" ]
     "struct: bad initializers", fun () ->
         let pts = "@ C: struct point { int x; int y; };\n@ C: extern void f(struct point *p);\n.global f\nf:\nbx lr"
         callFails pts [ "{{1, 2, 3}}" ] "has only 2 members"
