@@ -280,6 +280,36 @@ let toolTipInfo (v : int, orientation : string)
             | Memory.LDM ins -> makeTip <| memStackInfo ins MemRead
             | Memory.STM ins -> makeTip <| memStackInfo ins MemWrite
             | _ -> ()
+    | true, ParseTop.IVFP { Access = Some acc } ->
+        let TROWS s = (List.map (fun s -> s |> toDOM |> TD) >> TROW) s
+        let start = acc.Start dp
+        let word a = Map.tryFind (WA a) dp.MM |> (function | Some(Dat x) -> x | _ -> 0u)
+        let vword n = Map.tryFind n dp.Fp.W |> Option.defaultValue 0u
+        /// one row per register: name, direction, address, value as hex and as a float
+        let rows, _ =
+            acc.Regs |> List.mapFold (fun (a : uint32) r ->
+                let name, words, size =
+                    match r with
+                    | Vfp.SReg n -> sprintf "s%d" n, [ n ], 4u
+                    | Vfp.DReg n -> sprintf "d%d" n, [ 2 * n; 2 * n + 1 ], 8u
+                let lo, hi =
+                    if acc.IsLoad then word a, word (a + 4u)
+                    else vword words.Head, (if words.Length > 1 then vword words.[1] else 0u)
+                let value =
+                    if size = 4u then sprintf "%s (0x%08X)" (FpMath.format FpMath.F32 (FpMath.rawOfWord lo)) lo
+                    else sprintf "%s (0x%08X_%08X)" (FpMath.format FpMath.F64 (FpMath.rawOfWords lo hi)) hi lo
+                TROWS [ name; (if acc.IsLoad then "\u2190" else "\u2192"); sprintf "Mem<sub>%d</sub>[0x%08X]" (size * 8u) a; value ], a + size) start
+        let header =
+            [ match acc.Base with
+              | Some rn -> yield TROWS [ sprintf "Base (%s)" (rn.ToString()); sprintf "0x%08X" dp.Regs.[rn] ]
+              | None -> ()
+              yield TROWS [ "Address"; sprintf "0x%08X" start ]
+              match acc.Base, acc.After with
+              | Some rn, Some after -> yield TROWS [ sprintf "%s after" (rn.ToString()); sprintf "0x%08X" (after dp) ]
+              | _ -> () ]
+        let label = if acc.Base = Some R13 && acc.After.IsSome then "Stack" else "Pointer"
+        let tip = TABLE [] [ DIV [] header; DIV [ "tooltip-stack-regs-" + tippyTheme() + "-theme" ] rows ]
+        makeEditorInfoButton Tooltips.lineTipsClickable (findCodeEnd v, (v + 1), orientation) label tip
     | true, ParseTop.IDP(exec, op2) ->
         let alu = ExecutionTop.isArithmeticOpCode opc
         let pos = findCodeEnd v, v, orientation

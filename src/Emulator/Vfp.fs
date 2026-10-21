@@ -8,12 +8,21 @@ open Errors
 open Helpers
 open FpMath
 
-/// A ready-to-run VFP instruction
-type Instr = { Run : DataPath -> Result<DataPath, ExecuteError> }
-
 type VReg =
     | SReg of int
     | DReg of int
+
+/// What a VFP load or store accesses, for the editor's pointer tooltips
+type VfpAccess = {
+    IsLoad : bool
+    Regs : VReg list // in memory order, from the start address
+    Base : RName option // None for a label
+    Start : DataPath -> uint32
+    After : (DataPath -> uint32) option // the base register after write-back
+    }
+
+/// A ready-to-run VFP instruction
+type Instr = { Run : DataPath -> Result<DataPath, ExecuteError>; Access : VfpAccess option }
 
 type private Exec = DataPath -> Result<DataPath, ExecuteError>
 
@@ -446,10 +455,11 @@ let private regList (t : string) =
 /// VLDR/VSTR Rd, [Rn{, #±imm}] or a label
 let private vldrstr (isLoad : bool) (ls : LineData) (dts : string list) (ops : string list) =
     let typeOk r = dts = [] || dts = [ (if fmtOf r = F32 then "32" else "64") ] || dts = [ (if fmtOf r = F32 then "F32" else "F64") ]
-    let access r addrOf =
-        Ok(fun (dp : DataPath) ->
-            let a = addrOf dp
-            if isLoad then loadRegs [ r ] a dp else storeRegs [ r ] a dp)
+    let access r baseReg addrOf =
+        Ok((fun (dp : DataPath) ->
+                let a = addrOf dp
+                if isLoad then loadRegs [ r ] a dp else storeRegs [ r ] a dp),
+           Some { IsLoad = isLoad; Regs = [ r ]; Base = baseReg; Start = addrOf; After = None })
     match ops with
     | [ VREG r; _ ] when not (typeOk r) -> pErr "a type matching the register: .32/.f32 for s, .64/.f64 for d" (String.concat "." dts)
     | [ VREG r; addr ] when addr.Trim().StartsWith "[" ->
@@ -457,7 +467,7 @@ let private vldrstr (isLoad : bool) (ls : LineData) (dts : string list) (ops : s
         if not (a.EndsWith "]") then pErr "[Rn] or [Rn, #offset] (no write-back)" addr
         else
             match a.Substring(1, a.Length - 2).Split(',') |> Array.map (fun s -> s.Trim()) with
-            | [| rn |] -> parseRegister rn |> Result.bind (fun rn -> access r (fun dp -> dp.Regs.[rn]))
+            | [| rn |] -> parseRegister rn |> Result.bind (fun rn -> access r (Some rn) (fun dp -> dp.Regs.[rn]))
             | [| rn; off |] when off.StartsWith "#" ->
                 parseRegister rn
                 |> Result.bind (fun rn ->
@@ -465,7 +475,7 @@ let private vldrstr (isLoad : bool) (ls : LineData) (dts : string list) (ops : s
                     |> Result.bind (fun o ->
                         let o = int o
                         if o % 4 <> 0 || o < -1020 || o > 1020 then pErr "an offset that is a multiple of 4 from -1020 to 1020" off
-                        else access r (fun dp -> uint32 (int64 dp.Regs.[rn] + int64 o))))
+                        else access r (Some rn) (fun dp -> uint32 (int64 dp.Regs.[rn] + int64 o))))
             | _ -> pErr "[Rn] or [Rn, #offset]: a VFP address has no register offset or write-back" addr
     | [ VREG r; label ] when isLoad ->
         let (WA here) = ls.LoadAddr
@@ -474,7 +484,7 @@ let private vldrstr (isLoad : bool) (ls : LineData) (dts : string list) (ops : s
             let off = int64 target - int64 (here + 8u)
             if off % 4L <> 0L || off < -1020L || off > 1020L then
                 pErr "a label within 1020 bytes of this instruction; for data further away use ldr r0, =label then vldr with [r0]" label
-            else access r (fun _ -> target))
+            else access r None (fun _ -> target))
     | [ VREG _; label ] -> pErr "vstr Rd, [Rn{, #offset}]" label
     | _ -> pErr "vldr/vstr Sd or Dd, [Rn{, #offset}]" (String.concat ", " ops)
 
@@ -489,11 +499,12 @@ let private vldmstm (isLoad : bool) (decrement : bool) (baseTxt : string) (listT
     | Ok _, _ when decrement && not wb -> pErr "vldmdb and vstmdb need write-back: Rn!" baseTxt
     | Ok rn, Ok regs ->
         let bytes = 4u * uint32 (wordCount regs)
-        Ok(fun (dp : DataPath) ->
-            let start = if decrement then dp.Regs.[rn] - bytes else dp.Regs.[rn]
-            let after = if decrement then start else start + bytes
-            (if isLoad then loadRegs regs start dp else storeRegs regs start dp)
-            |> Result.map (fun d -> if wb then Helpers.setReg rn after d else d))
+        let start (dp : DataPath) = if decrement then dp.Regs.[rn] - bytes else dp.Regs.[rn]
+        let after (dp : DataPath) = if decrement then start dp else start dp + bytes
+        Ok((fun (dp : DataPath) ->
+                (if isLoad then loadRegs regs (start dp) dp else storeRegs regs (start dp) dp)
+                |> Result.map (fun d -> if wb then Helpers.setReg rn (after dp) d else d)),
+           Some { IsLoad = isLoad; Regs = regs; Base = Some rn; Start = start; After = (if wb then Some after else None) })
 
 // ---------------------------------------------------------------- top level
 
@@ -511,7 +522,7 @@ let private opCodes =
 /// true if the opcode (without its .type) is one this module handles
 let isVfpRoot (opc : string) = Map.containsKey ((opc.ToUpper().Split('.')).[0]) opCodes
 
-let private parseInstr (ls : LineData) (root : string) (suffix : string) (dts : string list) (ops : string list) : Result<Exec, ParseError> =
+let private parseOther (ls : LineData) (root : string) (suffix : string) (dts : string list) (ops : string list) : Result<Exec, ParseError> =
     let noType () = if dts <> [] then pErr (sprintf "%s takes no type" (root.ToLower())) (String.concat "." dts) else Ok()
     match root with
     | "VADD" -> arith3 root dts ops add
@@ -538,6 +549,11 @@ let private parseInstr (ls : LineData) (root : string) (suffix : string) (dts : 
     | "VMSR" -> noType () |> Result.bind (fun () -> vmsr ops)
     | "MRS" -> mrs ops
     | "MSR" -> msr ls.SymTab ops
+    | _ -> pErr "a VFP instruction" root
+
+/// loads and stores also describe their memory access
+let private parseInstr (ls : LineData) (root : string) (suffix : string) (dts : string list) (ops : string list) =
+    match root with
     | "VLDR" -> vldrstr true ls dts ops
     | "VSTR" -> vldrstr false ls dts ops
     | "VLDM" | "VSTM" ->
@@ -548,7 +564,7 @@ let private parseInstr (ls : LineData) (root : string) (suffix : string) (dts : 
         match ops with
         | [ l ] -> vldmstm (root = "VPOP") (root = "VPUSH") "sp!" l
         | _ -> pErr (sprintf "%s {register list}" (root.ToLower())) ls.Operands
-    | _ -> pErr "a VFP instruction" root
+    | _ -> parseOther ls root suffix dts ops |> Result.map (fun run -> run, None)
 
 /// parse a VFP instruction, or MRS/MSR
 let parse (ls : LineData) : Parse<Instr> option =
@@ -557,7 +573,7 @@ let parse (ls : LineData) : Parse<Instr> option =
     |> Option.map (fun (_, (root, suffix, cond)) ->
         let dts = parts |> Array.skip 1 |> List.ofArray
         let ops = splitOperands ls.Operands |> List.filter (fun o -> o <> "")
-        let res = parseInstr ls root suffix dts ops |> Result.map (fun run -> { Run = run })
+        let res = parseInstr ls root suffix dts ops |> Result.map (fun (run, access) -> { Run = run; Access = access })
         copyParse ls res cond)
 
 let (|IMatch|_|) = parse

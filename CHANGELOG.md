@@ -7,6 +7,7 @@ Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialColleg
 ### Added
 
 - C Call: `long long`, `int64_t` and `uint64_t` parameters, results and arrays, in even/odd register pairs (r0:r1, r2:r3) or 8-byte stack slots, as AAPCS requires.
+- Pointer and Stack tooltips for `vldr`, `vstr`, `vldm`, `vstm`, `vpush` and `vpop`, showing the address and each register's value as a float and in hex.
 - Memory tab: a **Floats** button adds a column showing each word as a float, or each 8-byte-aligned pair as a double.
 - **Help → Load floating-point example**: five VFP functions with saved C Call cases and expected results (`app/samples/fp_examples.s` and `.ccall`).
 - C Call: expected results in a case. The expected result and the expected contents of output buffers are checked after each call, with ✔ or ✘ and the values compared; float and double match within rounding.
