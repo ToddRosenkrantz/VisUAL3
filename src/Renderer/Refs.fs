@@ -206,6 +206,7 @@ let byteViewBtn = getHtml "byte-view"
 
 /// get reverse direction element
 let reverseViewBtn = getHtml "reverse-view"
+let floatViewBtn = getHtml "float-view"
 
 /// get memory list element
 let memList = getHtml "mem-list"
@@ -574,6 +575,8 @@ let mutable currentView = Registers
 let mutable byteView = false
 /// direction of memory addresses
 let mutable reverseDirection = false
+/// Memory view float column: 0 = off, 1 = each word as a float, 2 = each 8-byte-aligned pair as a double
+let mutable floatView = 0
 /// Number of instructions imulated before break. If 0 run forever
 let mutable maxStepsToRun = 50000
 /// Contents of data memory

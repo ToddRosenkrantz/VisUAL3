@@ -117,6 +117,11 @@ let init() =
         Views.updateMemory() :> obj
     )
 
+    (Refs.floatViewBtn).addEventListener_click(fun _ ->
+        Views.toggleFloatView()
+        Views.updateMemory() :> obj
+    )
+
     (Refs.reverseViewBtn).addEventListener_click(fun _ ->
         console.log "Toggling reverse view" |> ignore
         Views.toggleReverseView()

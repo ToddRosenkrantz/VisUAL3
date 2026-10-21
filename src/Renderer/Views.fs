@@ -35,6 +35,7 @@ let calcDashboardWidth() =
         | Bin, _ -> "--dashboard-width-binrep"
         | _, Registers -> "--dashboard-width-init-registers"
         | _, CCall | _, Vfp -> "--dashboard-width-call"
+        | _, Memory when floatView <> 0 -> "--dashboard-width-call"
         | _ -> "--dashboard-width-init-other"
         |> getCustomCSS
     printf "Setting width to %s" w
@@ -67,6 +68,13 @@ let toggleReverseView() =
         reverseViewBtn.classList.remove ("btn-byte-active")
         reverseViewBtn.innerHTML <- "Enable Reverse Direction"
 
+
+/// Cycle the Memory view's float column: off, float (single), double
+let toggleFloatView() =
+    floatView <- (floatView + 1) % 3
+    floatViewBtn.innerHTML <- [| "Floats: off"; "Floats: single"; "Floats: double" |].[floatView]
+    if floatView = 0 then floatViewBtn.classList.remove ("btn-byte-active") else floatViewBtn.classList.add ("btn-byte-active")
+    calcDashboardWidth()
 
 /// Toggle byte / word view
 let toggleByteView() =
@@ -152,7 +160,17 @@ let addToDOM (parent : Node) (childList : Node list) =
 /// Creates the html to format the memory table in contiguous blocks
 let updateMemoryIfChanged =
 
-    let updateMemory' (currentRep, byteView, reverseView, symbolMap, mem, stkInf) =
+    let updateMemory' (currentRep, byteView, reverseView, floatView, symbolMap, mem : Map<uint32, uint32>, stkInf) =
+        /// the float column, in word view only: a word as a float, or an 8-byte-aligned pair as a double
+        let floatText (addr : uint32) (value : uint32) =
+            match floatView with
+            | 1 -> FpMath.format FpMath.F32 (FpMath.rawOfWord value)
+            | 2 when addr % 8u = 0u ->
+                match Map.tryFind (addr + 4u) mem with
+                | Some hi -> FpMath.format FpMath.F64 (FpMath.rawOfWords value hi)
+                | None -> ""
+            | _ -> ""
+        let showFloats = floatView <> 0 && not byteView
         let chWidth = 13
         let memPanelShim = 50
         let onlyIfByte x = if byteView then [ x ] else []
@@ -202,7 +220,7 @@ let updateMemoryIfChanged =
                         formatterWithWidth 8 currentRep value +
                         (chRep |> function | "" -> "" | chr -> sprintf " %s" chr)
                     else formatter currentRep value)
-                ]
+                ] @ (if showFloats then [ floatText addr value ] else [])
 
             let makeNode txt = makeElement "td" "selectable-text" txt :> Node
 
@@ -214,7 +232,9 @@ let updateMemoryIfChanged =
 
             let makeNode txt = makeElement "th" "th-mem" txt :> Node
 
-            let tr = createDOM "tr" <| List.map makeNode ([ "Symbol"; "Address"; "Value" ])
+            let tr =
+                createDOM "tr" <| List.map makeNode
+                    ([ "Symbol"; "Address"; "Value" ] @ (if showFloats then [ (if floatView = 1 then "float" else "double") ] else []))
 
             let byteSwitcher =
                 match byteView with
@@ -255,7 +275,7 @@ let updateMemory() =
             let sp = (fst ri.dpCurrent).Regs.[CommonData.R13]
             Some(ri.StackInfo, sp)
         | _ -> Core.Option.None
-    updateMemoryIfChanged (currentRep, byteView, reverseDirection, symbolMap, memoryMap, stackInfo)
+    updateMemoryIfChanged (currentRep, byteView, reverseDirection, floatView, symbolMap, memoryMap, stackInfo)
 
 /// Update symbol table View using currentRep and symbolMap
 let updateSymTableIfChanged =
