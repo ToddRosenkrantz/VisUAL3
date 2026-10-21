@@ -384,76 +384,6 @@ let parseStructDef (structs : Map<string, CStructDef>) (txt : string) : Result<s
         | _ -> Error "expected '{' after struct and its name"
     | _ -> Error "expected a struct declaration"
 
-/// The "@ C:" comments of a source, with their line numbers.
-/// A struct declaration may continue on following "@ C:" lines until its ';'.
-let private cComments (lines : string list) =
-    let comments =
-        lines |> List.indexed |> List.choose (fun (i, l) ->
-            let t = l.TrimStart()
-            if t.StartsWith "@" then
-                let body = t.Substring(1).TrimStart()
-                if body.StartsWith "C:" || body.StartsWith "c:" then Some(i + 1, body.Substring(2).Trim()) else None
-            else None)
-    // "struct point *f(...)" is a prototype; a declaration has a '{' (or none of a prototype's '(' yet)
-    let isStructStart (b : string) =
-        (b.StartsWith "struct " || b.StartsWith "typedef " || b.StartsWith "union ") && (b.Contains "{" || not (b.Contains "("))
-    let complete (b : string) =
-        let opens = b |> Seq.filter ((=) '{') |> Seq.length
-        let closes = b |> Seq.filter ((=) '}') |> Seq.length
-        opens > 0 && opens = closes && b.TrimEnd().EndsWith ";"
-    let rec join acc (cs : (int * string) list) =
-        match cs with
-        | [] -> List.rev acc
-        | (n, b) :: rest when isStructStart b && not (complete b) ->
-            // take continuation lines up to the one that completes it
-            let rec take (text : string) (r : (int * string) list) =
-                match r with
-                | (n2, b2) :: r' when n2 <> n && not (complete text) -> take (text + " " + b2) r'
-                | _ -> text, r
-            let text, rest' = take b rest
-            join ((n, text) :: acc) rest'
-        | c :: rest -> join (c :: acc) rest
-    join [] comments
-    |> List.map (fun (n, b) -> n, b, isStructStart b)
-
-/// The structs declared in "@ C:" comments: by every name they can be used by, in order, and any errors
-let private declaredStructs (lines : string list) =
-    cComments lines
-    |> List.filter (fun (_, _, isStruct) -> isStruct)
-    |> List.fold (fun (structs : Map<string, CStructDef>, defs, errs) (n, b, _) ->
-        match parseStructDef structs b with
-        | Ok(names, sd) -> (names |> List.fold (fun m nm -> Map.add nm sd m) structs), defs @ [ sd ], errs
-        | Error e -> structs, defs, errs @ [ n, e ]) (Map.empty, [], [])
-
-/// The structs declared in "@ C:" comments, and any errors in them
-let findStructs (lines : string list) : CStructDef list * (int * string) list =
-    let _, defs, errs = declaredStructs lines
-    defs, errs
-
-/// Find "@ C: <prototype>" comments in the source; struct declarations are used by them
-/// (errors in struct declarations are returned too)
-let findPrototypes (lines : string list) : Result<Prototype, int * string> list =
-    let structs, _, structErrs = declaredStructs lines
-    (structErrs |> List.map Error)
-    @ (cComments lines
-       |> List.filter (fun (_, _, isStruct) -> not isStruct)
-       |> List.map (fun (n, b, _) -> parsePrototypeWith structs n b |> Result.mapError (fun e -> n, e)))
-
-/// "struct student: 32 bytes, aligned to 8: name[16] at 0, score at 16, gpa at 24"
-let layoutText (sd : CStructDef) =
-    let ms =
-        sd.Members |> List.map (fun m ->
-            sprintf "%s %s%s at %d" (typeName m.MType) m.MName (match m.Count with | Some n -> sprintf "[%d]" n | None -> "") m.Offset)
-    sprintf "%s: %d bytes, %s: %s" sd.SName sd.Size
-        (if sd.Packed then "packed" else sprintf "aligned to %d" sd.Align) (String.concat ", " ms)
-
-/// The scalar slots of one struct, in memory order: (label, type, offset)
-let structSlots (sd : CStructDef) =
-    sd.Members |> List.collect (fun m ->
-        match m.Count with
-        | None -> [ m.MName, m.MType, m.Offset ]
-        | Some n -> [ for i in 0 .. n - 1 -> sprintf "%s[%d]" m.MName i, m.MType, m.Offset + i * sizeOf m.MType ])
-
 /// split text on commas outside braces and quotes
 let splitTop (txt : string) =
     let parts = ResizeArray<string>()
@@ -481,6 +411,152 @@ let splitTop (txt : string) =
 let private unbrace (t : string) =
     let t = t.Trim()
     if t.StartsWith "{" && t.EndsWith "}" then Some(t.Substring(1, t.Length - 2)) else None
+
+/// What an "@ C:" comment declares
+type CDecl = | DStruct | DVar | DProto
+
+/// The "@ C:" comments of a source, with their line numbers and what they declare.
+/// A struct or variable declaration may continue on following "@ C:" lines until its ';'.
+let private cComments (lines : string list) =
+    let comments =
+        lines |> List.indexed |> List.choose (fun (i, l) ->
+            let t = l.TrimStart()
+            if t.StartsWith "@" then
+                let body = t.Substring(1).TrimStart()
+                if body.StartsWith "C:" || body.StartsWith "c:" then Some(i + 1, body.Substring(2).Trim()) else None
+            else None)
+    // "struct point { ... };" declares a struct, "struct point *f(...);" a function,
+    // "struct point p[] = { ... };" or "int counts[4];" a variable
+    let kindOf (b : string) =
+        let toks = tokenize b
+        match toks with
+        | "typedef" :: _ -> DStruct
+        | ("struct" | "union") :: "{" :: _ | ("struct" | "union") :: _ :: "{" :: _ -> DStruct
+        | ("struct" | "union") :: [ _ ] -> DStruct // "struct point" with its '{' on the next line
+        | _ ->
+            match List.tryFindIndex ((=) "(") toks, List.tryFindIndex ((=) "=") toks with
+            | Some p, Some e when e < p -> DVar
+            | Some _, _ -> DProto
+            | None, _ -> DVar
+    let complete (b : string) =
+        let opens = b |> Seq.filter ((=) '{') |> Seq.length
+        let closes = b |> Seq.filter ((=) '}') |> Seq.length
+        opens = closes && b.TrimEnd().EndsWith ";"
+    let rec join acc (cs : (int * string) list) =
+        match cs with
+        | [] -> List.rev acc
+        | (n, b) :: rest when kindOf b <> DProto && not (complete b) ->
+            // take continuation lines up to the one that completes it
+            let rec take (text : string) (r : (int * string) list) =
+                match r with
+                | (n2, b2) :: r' when n2 <> n && not (complete text) -> take (text + " " + b2) r'
+                | _ -> text, r
+            let text, rest' = take b rest
+            join ((n, text) :: acc) rest'
+        | c :: rest -> join (c :: acc) rest
+    join [] comments
+    |> List.map (fun (n, b) -> n, b, kindOf b)
+
+/// The structs declared in "@ C:" comments: by every name they can be used by, in order, and any errors
+let private declaredStructs (lines : string list) =
+    cComments lines
+    |> List.filter (fun (_, _, kind) -> kind = DStruct)
+    |> List.fold (fun (structs : Map<string, CStructDef>, defs, errs) (n, b, _) ->
+        match parseStructDef structs b with
+        | Ok(names, sd) -> (names |> List.fold (fun m nm -> Map.add nm sd m) structs), defs @ [ sd ], errs
+        | Error e -> structs, defs, errs @ [ n, e ]) (Map.empty, [], [])
+
+/// The structs declared in "@ C:" comments, and any errors in them
+let findStructs (lines : string list) : CStructDef list * (int * string) list =
+    let _, defs, errs = declaredStructs lines
+    defs, errs
+
+/// A C variable declared in an "@ C:" comment, placed in memory for each call:
+/// struct student s[] = {...};  int counts[4] = {1, 2};  char msg[] = "hi";  struct point p = {3, 4};
+type CVarDef = {
+    VName : string
+    VElem : CType
+    VCount : int option // None: a single value, not an array
+    VInit : string // the initializer; "" for none (zero)
+}
+
+/// Parse a variable declaration "type name[N] = initializer;" given the declared structs
+let parseVarDef (structs : Map<string, CStructDef>) (txt : string) : Result<CVarDef, string> =
+    let t = txt.Trim().TrimEnd(';').Trim()
+    let decl, init =
+        match t.IndexOf '=' with
+        | -1 -> t, ""
+        | i -> t.Substring(0, i).Trim(), t.Substring(i + 1).Trim()
+    let toks = tokenize decl |> List.filter (fun w -> w <> "static" && w <> "extern")
+    let toks, size =
+        match List.tryFindIndex ((=) "[") toks with
+        | Some i ->
+            match List.skip (i + 1) toks with
+            | "]" :: _ -> List.take i toks, Some None
+            | n :: "]" :: _ ->
+                match System.Int32.TryParse n with
+                | true, v when v > 0 -> List.take i toks, Some(Some v)
+                | _ -> toks, Some(Some -1)
+            | _ -> toks, Some(Some -1)
+        | None -> toks, None
+    match size with
+    | Some(Some -1) -> Error "an array needs a size, or [] with an initializer"
+    | _ ->
+        parseDecl structs toks
+        |> Result.bind (fun (name, ty) ->
+            match name, ty with
+            | None, _ -> Error "the variable needs a name"
+            | _, CVoid -> Error "a variable cannot be void"
+            | _, CPtr _ -> Error "pointer variables are not supported: declare an array, and pass its address"
+            | Some n, _ when size = Some None && init = "" -> Error(sprintf "%s[] needs an initializer to give its size" n)
+            | Some n, ty ->
+                let count =
+                    match size, ty with
+                    | None, _ -> Ok None
+                    | Some(Some v), _ -> Ok(Some v)
+                    | _, CIntT(CChar _) when init.StartsWith "\"" ->
+                        GnuLex.parseStringLiteral init |> Result.map (fun bytes -> Some(bytes.Length + 1))
+                    | _, CStruct _ ->
+                        let inner = match unbrace init with | Some i -> i | None -> init
+                        Ok(Some(splitTop inner |> List.filter (fun i -> i.StartsWith "{") |> List.length |> max 1))
+                    | _ -> Ok(Some((match unbrace init with | Some i -> splitTop i | None -> [ init ]).Length))
+                count |> Result.map (fun c -> { VName = n; VElem = ty; VCount = c; VInit = init }))
+
+/// The C variables declared in "@ C:" comments, and any errors in them
+let findVariables (lines : string list) : CVarDef list * (int * string) list =
+    let structs, _, _ = declaredStructs lines
+    cComments lines
+    |> List.filter (fun (_, _, kind) -> kind = DVar)
+    |> List.fold (fun (vars : CVarDef list, errs) (n, b, _) ->
+        match parseVarDef structs b with
+        | Ok v when vars |> List.exists (fun x -> x.VName = v.VName) -> vars, errs @ [ n, sprintf "%s is declared twice" v.VName ]
+        | Ok v -> vars @ [ v ], errs
+        | Error e -> vars, errs @ [ n, e ]) ([], [])
+
+/// Find "@ C: <prototype>" comments in the source; struct declarations are used by them
+/// (errors in struct and variable declarations are returned too)
+let findPrototypes (lines : string list) : Result<Prototype, int * string> list =
+    let structs, _, structErrs = declaredStructs lines
+    let _, varErrs = findVariables lines
+    (structErrs @ varErrs |> List.sortBy fst |> List.map Error)
+    @ (cComments lines
+       |> List.filter (fun (_, _, kind) -> kind = DProto)
+       |> List.map (fun (n, b, _) -> parsePrototypeWith structs n b |> Result.mapError (fun e -> n, e)))
+
+/// "struct student: 32 bytes, aligned to 8: name[16] at 0, score at 16, gpa at 24"
+let layoutText (sd : CStructDef) =
+    let ms =
+        sd.Members |> List.map (fun m ->
+            sprintf "%s %s%s at %d" (typeName m.MType) m.MName (match m.Count with | Some n -> sprintf "[%d]" n | None -> "") m.Offset)
+    sprintf "%s: %d bytes, %s: %s" sd.SName sd.Size
+        (if sd.Packed then "packed" else sprintf "aligned to %d" sd.Align) (String.concat ", " ms)
+
+/// The scalar slots of one struct, in memory order: (label, type, offset)
+let structSlots (sd : CStructDef) =
+    sd.Members |> List.collect (fun m ->
+        match m.Count with
+        | None -> [ m.MName, m.MType, m.Offset ]
+        | Some n -> [ for i in 0 .. n - 1 -> sprintf "%s[%d]" m.MName i, m.MType, m.Offset + i * sizeOf m.MType ])
 
 /// Names declared .global / .globl in the source
 let globalSymbols (lines : string list) =
@@ -537,7 +613,9 @@ let rec parseArgText (t : CType) (txt : string) : Result<ArgInput, string> =
 
 /// A buffer the emulator built in the caller area for a pointer argument
 type Buffer = {
-    BParam : string
+    BParam : string // the parameter, or the C variable, it holds
+    BVar : bool // a C variable declared in an "@ C:" comment
+    BArray : bool // false for a single variable such as struct point p
     BAddr : uint32
     BElem : CType
     BCount : int
@@ -752,6 +830,43 @@ let structMemberTexts (sd : CStructDef) (vals : int64 list) =
 /// one struct as {1, "Ann", 3.5}
 let structText (sd : CStructDef) (vals : int64 list) = "{" + String.concat ", " (structMemberTexts sd vals) + "}"
 
+/// An address written in terms of argument buffers and C variables: s, &s, &s[1], &s[1].name,
+/// &s[1].name[2], &p.x; None if the name is not one of them
+let bufferAddressIn (buffers : Buffer list) (txt : string) : Result<int64, string> option =
+    let t = txt.Trim().Replace(" ", "")
+    let body = if t.StartsWith "&" then t.Substring 1 else t
+    let cut = body.IndexOfAny([| '['; '.' |])
+    let name, rest = if cut < 0 then body, "" else body.Substring(0, cut), body.Substring cut
+    let index (r : string) =
+        if r.StartsWith "[" then
+            match r.IndexOf ']' with
+            | c when c > 1 ->
+                match System.Int32.TryParse(r.Substring(1, c - 1)) with
+                | true, i -> Some(i, r.Substring(c + 1))
+                | _ -> None
+            | _ -> None
+        else None
+    match buffers |> List.tryFind (fun b -> b.BParam = name) with
+    | None -> None
+    | Some b ->
+        let i, rest = match index rest with | Some(i, r) -> i, r | None -> 0, rest
+        let elemAddr = int64 b.BAddr + int64 (i * sizeOf b.BElem)
+        if i < 0 || i > b.BCount then Some(Error(sprintf "%s has %d elements: '%s' is outside it" name b.BCount txt))
+        elif rest = "" then Some(Ok elemAddr)
+        else
+            match b.BElem with
+            | CStruct sd when rest.StartsWith "." ->
+                let mtxt = rest.Substring 1
+                let mname, mrest = match mtxt.IndexOf '[' with | -1 -> mtxt, "" | k -> mtxt.Substring(0, k), mtxt.Substring k
+                match sd.Members |> List.tryFind (fun m -> m.MName = mname) with
+                | None -> Some(Error(sprintf "%s has no member %s" sd.SName mname))
+                | Some m when mrest = "" -> Some(Ok(elemAddr + int64 m.Offset))
+                | Some m ->
+                    match index mrest, m.Count with
+                    | Some(j, ""), Some n when j >= 0 && j <= n -> Some(Ok(elemAddr + int64 (m.Offset + j * sizeOf m.MType)))
+                    | _ -> Some(Error(sprintf "'%s' is not a member of %s" txt name))
+            | _ -> Some(Error(sprintf "'%s' is not an element or member of %s" txt name))
+
 /// Build the machine state for calling proto with args, using the program in lim
 let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype) (args : ArgInput list) : Result<CallSetup, string list> =
     let syms = lim.SymInf.SymTab
@@ -774,18 +889,20 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
             let mutable next = callerArea
             let mutable mem = lim.Mem
             let mutable buffers = []
-            let allocBytes (p : CParam) elem isConst count (values : int64 list) (bytes : uint32 list) =
+            /// place a buffer for a parameter or a C variable (isVar), 8-byte aligned
+            let allocNamed (name : string) isVar isArray elem isConst count (values : int64 list) (bytes : uint32 list) =
                 let addr = next
                 mem <- addBytesToMem addr mem bytes
                 next <- (next + uint32 (max 1 bytes.Length) + 7u) &&& 0xFFFFFFF8u
-                buffers <- buffers @ [ { BParam = p.PName; BAddr = addr; BElem = elem; BCount = count; BConst = isConst; BInitial = values } ]
+                buffers <- buffers @ [ { BParam = name; BVar = isVar; BArray = isArray; BAddr = addr; BElem = elem; BCount = count; BConst = isConst; BInitial = values } ]
                 addr
+            let allocBytes (p : CParam) elem isConst count values bytes = allocNamed p.PName false true elem isConst count values bytes
+            let scalarBytes elem (values : int64 list) =
+                values |> List.collect (fun v -> List.init (sizeOf elem) (fun i -> uint32 ((v >>> (8 * i)) &&& 0xFFL)))
             let alloc (p : CParam) elem isConst (values : int64 list) =
-                let size = sizeOf elem
-                allocBytes p elem isConst values.Length values
-                    (values |> List.collect (fun v -> List.init size (fun i -> uint32 ((v >>> (8 * i)) &&& 0xFFL))))
+                allocBytes p elem isConst values.Length values (scalarBytes elem values)
             /// an array of structs: values are their slots, in order; padding is zero
-            let allocStructs (p : CParam) (sd : CStructDef) isConst (elems : Map<int, int64> list) =
+            let structImage (sd : CStructDef) (elems : Map<int, int64> list) =
                 let slots = structSlots sd
                 let image = Array.create (elems.Length * sd.Size) 0u
                 let values =
@@ -796,7 +913,42 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                                 image.[i * sd.Size + off + b] <- uint32 ((v >>> (8 * b)) &&& 0xFFL)
                             v))
                     |> List.concat
-                allocBytes p (CStruct sd) isConst elems.Length values (List.ofArray image)
+                values, List.ofArray image
+            let allocStructs (p : CParam) (sd : CStructDef) isConst (elems : Map<int, int64> list) =
+                let values, image = structImage sd elems
+                allocBytes p (CStruct sd) isConst elems.Length values image
+            // the C variables declared in "@ C:" comments come first, fresh for every call
+            let vars, varDeclErrors = findVariables sourceLines
+            let varErrors =
+                vars |> List.choose (fun v ->
+                    let count = defaultArg v.VCount 1
+                    let isArray = v.VCount.IsSome
+                    let fits (n : int) what = if n > count then Error(sprintf "%d %s do not fit in %s[%d]" n what v.VName count) else Ok()
+                    match v.VElem with
+                    | CStruct sd ->
+                        (if v.VInit = "" then Ok [] else structElems syms sd v.VInit)
+                        |> Result.bind (fun es -> fits es.Length "structs" |> Result.map (fun () -> es @ List.replicate (count - es.Length) Map.empty))
+                        |> Result.map (fun es ->
+                            let values, image = structImage sd es
+                            allocNamed v.VName true isArray (CStruct sd) false count values image |> ignore)
+                    | CIntT(CChar _) as elem when v.VInit.StartsWith "\"" ->
+                        GnuLex.parseStringLiteral v.VInit
+                        |> Result.bind (fun bytes ->
+                            if bytes.Length > count then Error(sprintf "the string is longer than %s[%d]" v.VName count)
+                            else
+                                let values = (bytes |> List.map int64) @ List.replicate (count - bytes.Length) 0L
+                                Ok(allocNamed v.VName true isArray elem false count values (scalarBytes elem values) |> ignore))
+                    | elem ->
+                        let items = if v.VInit = "" then [] else (match unbrace v.VInit with | Some i -> splitTop i | None -> [ v.VInit ])
+                        fits items.Length "values"
+                        |> Result.bind (fun () ->
+                            items |> List.map (evalScalar syms elem)
+                            |> List.fold (fun a r -> match a, r with | Ok xs, Ok x -> Ok(xs @ [ x ]) | Error e, _ | _, Error e -> Error e) (Ok []))
+                        |> Result.map (fun vs ->
+                            let values = vs @ List.replicate (count - vs.Length) 0L
+                            allocNamed v.VName true isArray elem false count values (scalarBytes elem values) |> ignore)
+                    |> function | Error e -> Some(sprintf "%s: %s" v.VName e) | Ok() -> None)
+                |> fun errs -> (varDeclErrors |> List.map (fun (n, e) -> sprintf "line %d: %s" n e)) @ errs
             let argWord (p : CParam) (a : ArgInput) : Result<int64, string> =
                 let where msg = sprintf "%s: %s" p.PName msg
                 let word (r : Result<uint32, string>) = r |> Result.map int64
@@ -807,6 +959,8 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                 | CFloat d, Value v -> evalFloat d v |> Result.mapError where
                 | CIntT(CInt64 s), Value v -> eval64 s v |> Result.mapError where
                 | (CVoid | CIntT _) as t, Value v -> evalValue syms t v |> Result.map (extendValue t) |> word |> Result.mapError where
+                | CPtr _, (Elements _ | Str _ | OutBuffer _ | Sized _) when vars |> List.exists (fun v -> v.VName = p.PName) ->
+                    Error(where (sprintf "there is also a C variable named %s: pass it by address (%s or &%s[0]) as an address, or rename one" p.PName p.PName p.PName))
                 | CPtr(CStruct sd, isConst), (Elements _ | Str _ | OutBuffer _ | Sized _) ->
                     let rec elems (a : ArgInput) =
                         match a with
@@ -842,9 +996,20 @@ let prepareCall (lim : LoadImage) (sourceLines : string list) (proto : Prototype
                         | _, _ -> Error "wrong kind of argument for this type"
                     contents a |> Result.map (alloc p elem isConst >> int64) |> Result.mapError where
                 | CPtr _, Address s when s.Trim() = "NULL" -> Ok 0L
-                | CPtr(elem, _), Address s -> evalValue syms (CIntT(CInt32 false)) s |> Result.mapError where
+                | CPtr(elem, _), Address s ->
+                    match bufferAddressIn buffers s with
+                    | Some r -> r |> Result.mapError where
+                    | None when s.Trim().StartsWith "&" || s.Contains "[" || s.Contains "." ->
+                        let name = s.Trim().TrimStart('&').Split([| '['; '.' |]).[0]
+                        let known = buffers |> List.map (fun b -> b.BParam)
+                        Error(where (sprintf "%s is not a C variable or argument array%s" name
+                                         (if known.IsEmpty then ": declare one in a comment, e.g. @ C: int a[3] = {1, 2, 3};"
+                                          else ": these are " + String.concat ", " known)))
+                    | None ->
+                        evalValue syms (CIntT(CInt32 false)) s
+                        |> Result.mapError (fun e -> where (e.Replace("is not a number or a label in the program", "is not a C variable, a label or a number")))
             let results = List.map2 argWord proto.Params args
-            match results |> List.choose (function | Error e -> Some e | _ -> None) with
+            match varErrors @ (results |> List.choose (function | Error e -> Some e | _ -> None)) with
             | errs when errs <> [] -> fail errs
             | _ ->
                 let values = results |> List.map (function | Ok w -> w | Error _ -> 0L)
@@ -914,8 +1079,9 @@ let readValue (mm : DataMemory) (t : CType) (a : uint32) =
     | CFloat false -> int64 (word a 4)
     | _ -> decodeValue t (word a n)
 
-/// Describe an address: inside an argument buffer, or relative to a program label
-let describeAddress (setup : CallSetup) (a : uint32) =
+/// Describe an address that points to a pointee: inside an argument buffer or C variable
+/// (&s[1], &s[1].name, &p.x), or relative to a program label
+let describeAddressOf (setup : CallSetup) (pointee : CType) (a : uint32) =
     let inBuffer =
         setup.Buffers |> List.tryFind (fun b -> a >= b.BAddr && a < b.BAddr + uint32 (max 1 (b.BCount * sizeOf b.BElem)))
     match inBuffer with
@@ -923,18 +1089,25 @@ let describeAddress (setup : CallSetup) (a : uint32) =
     | Some b ->
         let off = int (a - b.BAddr)
         let size = sizeOf b.BElem
+        let elemTxt = if b.BArray then sprintf "%s[%d]" b.BParam (off / size) else b.BParam
+        let within = off % size
+        let pointsToElement = match pointee, b.BElem with | (CVoid | CStruct _), _ -> true | t, e -> t = e
         match b.BElem with
-        | _ when off % size = 0 -> sprintf "&%s[%d]" b.BParam (off / size)
+        | _ when within = 0 && pointsToElement -> "&" + elemTxt
         | CStruct sd ->
-            match structSlots sd |> List.tryFind (fun (_, _, o) -> o = off % size) with
-            | Some(label, _, _) -> sprintf "&%s[%d].%s" b.BParam (off / size) label
-            | None -> sprintf "%s + %d bytes" b.BParam off
+            match sd.Members |> List.tryFind (fun m -> within >= m.Offset && within < m.Offset + sizeOf m.MType * defaultArg m.Count 1) with
+            | Some m when within = m.Offset -> sprintf "&%s.%s" elemTxt m.MName
+            | Some m when (within - m.Offset) % sizeOf m.MType = 0 -> sprintf "&%s.%s[%d]" elemTxt m.MName ((within - m.Offset) / sizeOf m.MType)
+            | _ -> sprintf "%s + %d bytes" b.BParam off
+        | _ when within = 0 -> "&" + elemTxt
         | _ -> sprintf "%s + %d bytes" b.BParam off
     | None ->
         let st = setup.Run.st |> Map.toList |> List.filter (fun (_, (v, _)) -> v <= a) |> List.sortBy (fun (_, (v, _)) -> a - v)
         match st with
         | (name, (v, _)) :: _ when a - v < 0x1000u -> if a = v then name else sprintf "%s + %d" name (a - v)
         | _ -> sprintf "0x%X" a
+
+let describeAddress (setup : CallSetup) (a : uint32) = describeAddressOf setup CVoid a
 
 let private formatValue t (v : int64) =
     match t with
@@ -972,10 +1145,19 @@ let decodeResult (setup : CallSetup) (ri : RunInfo) : CallResult =
         | CVoid, _ -> "void"
         | CPtr(elem, _), Some v ->
             let a = uint32 v
-            let target = describeAddress setup a
+            let target = describeAddressOf setup elem a
             if a = 0u || elem = CVoid then target
             else
                 match elem with
+                | CIntT(CChar _) ->
+                    // a string: up to its 0
+                    let chars = Seq.initInfinite (fun i -> readByte dp.MM (a + uint32 i)) |> Seq.truncate 4096 |> Seq.takeWhile (fun c -> c <> 0u) |> List.ofSeq
+                    let esc (c : uint32) =
+                        match c with
+                        | 10u -> "\\n" | 34u -> "\\\"" | 92u -> "\\\\"
+                        | c when c >= 32u && c < 127u -> string (char c)
+                        | c -> sprintf "\\x%02X" c
+                    sprintf "%s -> \"%s\"" target (chars |> List.map esc |> String.concat "")
                 | CStruct sd -> sprintf "%s -> %s" target (structText sd (structSlots sd |> List.map (fun (_, t, o) -> readValue dp.MM t (a + uint32 o))))
                 | _ -> sprintf "%s -> %s" target (formatValue elem (readValue dp.MM elem a))
         | t, Some v -> formatValue t v
@@ -1038,29 +1220,6 @@ let private sameValue (t : CType) (expected : int64) (actual : int64) =
         || abs (e - a) <= (if d then 1e-12 else 1e-6) * max 1.0 (abs e)
     | _ -> expected = actual
 
-/// An address written as an argument buffer: s, &s[1], &s[1].score or &a[2]; None if it isn't one
-let private bufferAddress (setup : CallSetup) (txt : string) : Result<int64, string> option =
-    let t = txt.Trim().Replace(" ", "")
-    let body = if t.StartsWith "&" then t.Substring 1 else t
-    let name, rest = match body.IndexOf '[' with | -1 -> body, "" | i -> body.Substring(0, i), body.Substring i
-    match setup.Buffers |> List.tryFind (fun b -> b.BParam = name) with
-    | None -> None
-    | Some b when rest = "" -> Some(Ok(int64 b.BAddr))
-    | Some b ->
-        let close = rest.IndexOf ']'
-        match (if close > 1 then System.Int32.TryParse(rest.Substring(1, close - 1)) else (false, 0)) with
-        | true, i when i >= 0 && i <= b.BCount ->
-            let field = rest.Substring(close + 1)
-            let elemAddr = int64 b.BAddr + int64 (i * sizeOf b.BElem)
-            match b.BElem, field with
-            | _, "" -> Some(Ok elemAddr)
-            | CStruct sd, f when f.StartsWith "." ->
-                match structSlots sd |> List.tryFind (fun (label, _, _) -> label = f.Substring 1) with
-                | Some(_, _, off) -> Some(Ok(elemAddr + int64 off))
-                | None -> Some(Error(sprintf "%s has no member %s" sd.SName (f.Substring 1)))
-            | _ -> Some(Error(sprintf "'%s' is not an element or member of %s" txt name))
-        | _ -> Some(Error(sprintf "%s has %d elements: '%s' is outside it" name b.BCount txt))
-
 /// Check a call's result against what the case expects
 let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) : CheckResult list =
     let syms = setup.Run.st |> Map.map (fun _ (v, _) -> v)
@@ -1073,10 +1232,10 @@ let checkExpectations (setup : CallSetup) (res : CallResult) (ex : Expectation) 
               let t = setup.Proto.Ret
               // a pointer result can be expected as &s[1], and is shown that way
               let expected =
-                  match t, bufferAddress setup ex.Return with
+                  match t, bufferAddressIn setup.Buffers ex.Return with
                   | CPtr _, Some r -> r
                   | _ -> evalExpected syms t ex.Return
-              let show v = match t with | CPtr _ -> describeAddress setup (uint32 v) | _ -> formatValue t v
+              let show v = match t with | CPtr(pointee, _) -> describeAddressOf setup pointee (uint32 v) | _ -> formatValue t v
               match expected, res.ReturnValue with
               | Ok e, Some a ->
                   let ok = sameValue t e a
@@ -1163,7 +1322,7 @@ let formatCall (setup : CallSetup) (res : CallResult) =
         List.zip p.Params setup.ArgBits
         |> List.map (fun (prm, w) ->
             match prm.PType with
-            | CPtr _ -> sprintf "%s=%s" prm.PName (describeAddress setup (uint32 w))
+            | CPtr(pointee, _) -> sprintf "%s=%s" prm.PName (describeAddressOf setup pointee (uint32 w))
             | CFloat d -> sprintf "%s=%s" prm.PName (formatFloat d w)
             | CIntT(CInt64 s) -> sprintf "%s=%s" prm.PName (if s then string w else string (uint64 w))
             | t -> sprintf "%s=%d" prm.PName (decodeValue t (uint32 w)))

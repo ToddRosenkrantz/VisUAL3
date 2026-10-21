@@ -274,6 +274,19 @@
   <li>The result shows a row per struct and a column per member; changed members show <i>before → after</i>. An expected value such as <code>{{"Ann", 95}, {"Bob", 80}}</code> checks only the members it gives.</li>
   <li>A packed struct's members can be at odd addresses: <code>ldr r3, [r0, #1]</code> loads one, as unaligned loads work on ARMv7 Linux (unless Strict Alignment is on).</li>
 </ul>
+<h3>C variables: data in memory, passed by address</h3>
+<p>To call functions on the same data as a C program would, declare it as C variables in <code>@ C:</code> comments, then give pointer arguments as addresses into them, as the C code would pass them:</p>
+<pre><span class="c">@ C: struct student s[] = {{"Ann", 90, 3.5}, {"Bob", 75, 2.8}};</span>
+<span class="c">@ C: int counts[4] = {1, 2, 3, 4};</span>
+<span class="c">@ C: char msg[] = "hello";</span>
+<span class="c">@ C: extern struct student *find_student(struct student *s, int n, const char *name);</span>
+<span class="c">@ C: extern int str_len(const char *str);</span></pre>
+<ul>
+  <li>For <code>find_student(s, 2, "Bob")</code>, give <code>s</code> as the address <code>s</code> (or <code>&amp;s</code>, <code>&amp;s[0]</code>), <code>n</code> as 2 and <code>name</code> as the string <code>Bob</code>. The result shows <code>&amp;s[1] -&gt; {"Bob", 75, 2.8}</code>, and the expected result can be written <code>&amp;s[1]</code>.</li>
+  <li>An address can name any element or member: <code>&amp;s[1].name</code>, <code>&amp;s[0].score</code>, <code>&amp;counts[2]</code>, <code>msg</code>, <code>&amp;p</code> for a single <code>struct point p = {3, 4};</code>.</li>
+  <li>Variables are placed in memory from <code>0x10000000</code>, freshly initialised for every call, and shown before and after it. Each has an <b>Expected … after</b> box, checked like an argument array. With variables declared, pointer arguments start as <b>address</b>.</li>
+  <li>Variables can be numbers, structs, and arrays of them (<code>[]</code> takes its size from the initializer; without an initializer they are zero). Pointer variables are not supported: declare the array and pass its address.</li>
+</ul>
 <h3>Expected results</h3>
 <p>A case can also say what the call should produce, so it checks itself. Type the expected value in <b>Expected … result</b> below the arguments, and for a pointer that is not <code>const</code>, its expected contents in the box under its argument: <code>{0, 1, 4, 9}</code>, or <code>"text"</code> for a char buffer. Only the elements you list are compared, from the first. After each call the result shows ✔ or ✘ for every check, with the expected and actual values, and History counts how many passed.</p>
 <ul>

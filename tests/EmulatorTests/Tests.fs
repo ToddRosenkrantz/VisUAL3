@@ -1808,7 +1808,7 @@ my_strcat:
         | Ok(setup, res) ->
             let dest = res.BufferResults |> List.find (fun b -> b.Buffer.BParam = "dest")
             expectEq "dest size" dest.Buffer.BCount 32
-            @ expectEq "returns dest" res.ReturnText "&dest[0] -> 72 'H'"
+            @ expectEq "returns dest" res.ReturnText "&dest[0] -> \"Hello, world\""
             @ expectEq "check" (checkExpectations setup res { Return = ""; After = Map.ofList [ "dest", "\"Hello, world\"" ] } |> List.map (fun c -> c.Passed, c.Detail))
                 [ true, "\"Hello, world\", as expected" ]
             @ expectEq "check fails" (checkExpectations setup res { Return = ""; After = Map.ofList [ "dest", "\"Hello world\"" ] } |> List.map (fun c -> c.Detail))
@@ -1947,6 +1947,110 @@ find_student:
         @ expectEq "missing" (check "Cy" "NULL") [ true, "NULL, as expected" ]
         @ expectEq "field" (check "Ann" "&s[0].score" |> List.map fst) [ false ]
         @ expectEq "bad member" (check "Ann" "&s[0].age" |> List.map snd) [ "the expected value is not valid: struct student has no member age" ]
+    "C variables: struct data in memory, passed by address", fun () ->
+        let prog = """@ C: struct student { char name[16]; int score; double gpa; };
+@ C: struct student s[] = {{"Ann", 90, 3.5},
+@ C:                       {"Bob", 75, 2.8}};
+@ C: int counts[4] = {1, 2, 3, 4};
+@ C: char msg[] = "hello";
+@ C: struct point { int x; int y; };
+@ C: struct point p = {3, 4};
+@ C: extern struct student *find_student(struct student *s, int n, const char *name);
+@ C: extern int str_len(const char *str);
+@ C: extern void bump(int *score);
+@ C: extern char *name_of(struct student *st);
+@ C: extern int sum(const int *a, int n);
+@ C: extern int px(struct point *q);
+        .global find_student, str_len, bump, name_of, sum, px
+find_student:
+        push    {r4, r5}
+1:      cmp     r1, #0
+        moveq   r0, #0
+        beq     4f
+        mov     r3, r0
+        mov     r12, r2
+2:      ldrb    r4, [r3], #1
+        ldrb    r5, [r12], #1
+        cmp     r4, r5
+        bne     3f
+        cmp     r4, #0
+        bne     2b
+        b       4f
+3:      add     r0, r0, #32
+        sub     r1, r1, #1
+        b       1b
+4:      pop     {r4, r5}
+        bx      lr
+str_len:
+        mov     r1, r0
+1:      ldrb    r2, [r1], #1
+        cmp     r2, #0
+        bne     1b
+        sub     r0, r1, r0
+        sub     r0, r0, #1
+        bx      lr
+bump:
+        ldr     r1, [r0]
+        add     r1, r1, #1
+        str     r1, [r0]
+        bx      lr
+name_of:
+        bx      lr
+sum:
+        mov     r2, #0
+1:      ldr     r3, [r0], #4
+        add     r2, r2, r3
+        subs    r1, r1, #1
+        bne     1b
+        mov     r0, r2
+        bx      lr
+px:
+        ldr     r0, [r0]
+        bx      lr"""
+        let lines = srcLines prog
+        let lim = reLoadProgram lines
+        let protos = findPrototypes lines
+        let errs = protos |> List.choose (function | Error(n, e) -> Some(sprintf "%d %s" n e) | _ -> None)
+        let call name (args : string list) =
+            let proto = protos |> List.pick (function | Ok p when p.FName = name -> Some p | _ -> None)
+            // pointers are given as addresses, strings as strings, numbers as values
+            let toArg (p : CParam) (t : string) =
+                match p.PType, t with
+                | CPtr _, t when t.StartsWith "\"" -> Str t
+                | CPtr _, t -> Address t
+                | _, t -> Value t
+            callFunction lim lines proto (List.map2 toArg proto.Params args) 10000L
+        let ret name args = match call name args with | Ok(_, r) -> r.ReturnText | Error e -> String.concat "; " e
+        expectEq "no declaration errors" errs []
+        @ expectEq "find Bob" (ret "find_student" [ "s"; "2"; "\"Bob\"" ]) "&s[1] -> {\"Bob\", 75, 2.8}"
+        @ expectEq "&s" (ret "find_student" [ "&s"; "2"; "\"Ann\"" ]) "&s[0] -> {\"Ann\", 90, 3.5}"
+        @ expectEq "&s[1] n=1" (ret "find_student" [ "&s[1]"; "1"; "\"Ann\"" ]) "NULL"
+        @ expectEq "name field" (ret "str_len" [ "&s[1].name" ]) "3 (0x3)"
+        @ expectEq "char array variable" (ret "str_len" [ "msg" ]) "5 (0x5)"
+        @ expectEq "char * result" (ret "name_of" [ "&s[1]" ]) "&s[1].name -> \"Bob\""
+        @ expectEq "int array variable" (ret "sum" [ "counts"; "4" ]) "10 (0xA)"
+        @ expectEq "part of an array" (ret "sum" [ "&counts[2]"; "2" ]) "7 (0x7)"
+        @ expectEq "single struct" (ret "px" [ "&p" ]) "3 (0x3)"
+        @ (match call "bump" [ "&s[0].score" ] with
+           | Ok(setup, res) ->
+               let summary =
+                   [ "bump(score=&s[0].score)"
+                     "  returned void"
+                     "  s[2]: {*{\"Ann\", 91, 3.5}, {\"Bob\", 75, 2.8}}"
+                     "  counts[4]: {1, 2, 3, 4}"
+                     "  msg[6]: {104, 101, 108, 108, 111, 0}"
+                     "  p[1]: {{3, 4}}" ]
+               expectEq "bump summary" (formatCall setup res) summary
+               @ expectEq "check a variable" (checkExpectations setup res { Return = ""; After = Map.ofList [ "s", "{{\"Ann\", 91}}" ] } |> List.map (fun c -> c.Passed)) [ true ]
+           | Error e -> e)
+        @ expectEq "unknown name" (ret "str_len" [ "&t[1].name" ]) "str: t is not a C variable or argument array: these are s, counts, msg, p"
+        @ expectEq "no such member" (ret "str_len" [ "&s[1].nick" ]) "str: struct student has no member nick"
+    "C variables: declaration errors", fun () ->
+        let errs lines = findPrototypes (lines |> List.map (fun l -> "@ C: " + l)) |> List.choose (function | Error(_, e) -> Some e | _ -> None)
+        expectEq "unsized" (errs [ "int a[];" ]) [ "a[] needs an initializer to give its size" ]
+        @ expectEq "pointer" (errs [ "char *p = \"x\";" ]) [ "pointer variables are not supported: declare an array, and pass its address" ]
+        @ expectEq "twice" (errs [ "int a = 1;"; "int a = 2;" ]) [ "a is declared twice" ]
+        @ expectEq "prototype still a prototype" (findPrototypes [ "@ C: struct point { int x; };"; "@ C: struct point *f(int a);" ] |> List.map (function | Ok p -> p.FName | Error(_, e) -> e)) [ "f" ]
     "struct: bad initializers", fun () ->
         let pts = "@ C: struct point { int x; int y; };\n@ C: extern void f(struct point *p);\n.global f\nf:\nbx lr"
         callFails pts [ "{{1, 2, 3}}" ] "has only 2 members"

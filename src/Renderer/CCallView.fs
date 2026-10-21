@@ -53,10 +53,15 @@ let private ptrKinds elem =
     [ yield PArray, "array"
       if isCharLike elem then yield PString, "string"
       yield POut, "output buffer"
-      yield PAddr, "address / label / NULL" ]
+      yield PAddr, "address: a C variable, label or NULL" ]
+
+/// the C variables declared in the current file ("@ C: struct student s[] = {...};")
+let mutable private fileVars : CVarDef list = []
 
 let private defaultInput (p : CParam) =
     match p.PType with
+    // with C variables declared, pointers usually point into them
+    | CPtr _ when not fileVars.IsEmpty -> { Kind = PAddr; Text = "" }
     | CPtr(elem, _) when isCharLike elem -> { Kind = PString; Text = "" }
     | CPtr _ -> { Kind = PArray; Text = "" }
     | CIntT CBool -> { Kind = PArray; Text = "0" }
@@ -115,7 +120,7 @@ let private ptrHint kind elem =
         sprintf "elements, e.g. %s; add [n] for a buffer of n (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
     | PString -> "text, e.g. hello\\n (a 0 byte is added); \"Hello, \" [32] for a 32-byte buffer"
     | POut -> "number of zeroed elements, e.g. 4"
-    | PAddr -> "a label from the program, an address, or NULL"
+    | PAddr -> "a C variable: s, &s[1], &s[1].name; or a label, an address, or NULL"
 
 /// Turn a remembered input into the argument for CCall
 let rec private argOf (p : CParam) (inp : ParamInput) : Result<ArgInput, string> =
@@ -157,7 +162,8 @@ let rec private startCall (proto : Prototype) (stepInto : bool) =
                 activeCall <- Some setup
                 activeExpect <-
                     { Return = expectOf proto "return"
-                      After = proto.Params |> List.map (fun p -> p.PName, expectOf proto p.PName) |> Map.ofList }
+                      After = (proto.Params |> List.map (fun p -> p.PName)) @ (fileVars |> List.map (fun v -> v.VName))
+                              |> List.map (fun n -> n, expectOf proto n) |> Map.ofList }
                 lastErrors <- []
                 render ()
                 Integration.startCCall setup.Run stepInto
@@ -282,7 +288,8 @@ and private resultView (setup : CallSetup) (res : CallResult) =
             let b = br.Buffer
             let head =
                 txt "div" "ccall-buf-head"
-                    (sprintf "%s: %s%s[%d] at 0x%X" b.BParam (if b.BConst then "const " else "") (typeName b.BElem) b.BCount b.BAddr)
+                    (sprintf "%s: %s%s[%d] at 0x%X%s" b.BParam (if b.BConst then "const " else "") (typeName b.BElem) b.BCount b.BAddr
+                        (if b.BVar then " (C variable)" else ""))
             let rows =
                 (match b.BElem with | CStruct _ -> [] | _ -> List.zip b.BInitial br.After)
                 |> List.mapi (fun i (before, after) ->
@@ -391,6 +398,7 @@ and render () =
     root.innerHTML <- ""
     let lines = if currentFileTabId < 0 then [] else textOfTId currentFileTabId
     let found = findPrototypes lines
+    fileVars <- fst (findVariables lines)
     let protos = found |> List.choose (function | Ok p -> Some p | _ -> None)
     let protoErrors =
         found |> List.choose (function
@@ -424,10 +432,16 @@ and render () =
                 txt "div" "ccall-signature" (sprintf "%s %s(%s)" (typeName proto.Ret) proto.FName (if ps = "" then "void" else ps))
             // the layout of each struct the function uses
             let layouts =
-                (proto.Ret :: (proto.Params |> List.map (fun p -> p.PType)))
+                (proto.Ret :: (proto.Params |> List.map (fun p -> p.PType)) @ (fileVars |> List.map (fun v -> CPtr(v.VElem, false))))
                 |> List.choose (function | CPtr(CStruct sd, _) -> Some sd | _ -> None)
                 |> List.distinctBy (fun sd -> sd.SName)
                 |> List.map (fun sd -> txt "div" "ccall-layout" (layoutText sd))
+            let varList =
+                match fileVars with
+                | [] -> []
+                | vs ->
+                    let decl (v : CVarDef) = sprintf "%s %s%s" (typeName v.VElem) v.VName (match v.VCount with | Some n -> sprintf "[%d]" n | None -> "")
+                    [ txt "div" "ccall-layout" ("C variables, set up afresh for each call: " + (vs |> List.map decl |> String.concat ", ")) ]
             let table =
                 match proto.Params with
                 | [] -> txt "div" "ccall-raw" "no parameters"
@@ -435,6 +449,15 @@ and render () =
                     el "table" "ccall-params"
                         (el "tr" "" [ txt "th" "" "in"; txt "th" "" "parameter"; txt "th" "" "argument" ]
                          :: List.mapi (paramRow proto) ps)
+            // what the C variables should hold after the call
+            let varExpects =
+                fileVars |> List.map (fun v ->
+                    let e = document.createElement_input()
+                    e.value <- expectOf proto v.VName
+                    e.placeholder <- "optional, e.g. " + (match v.VElem with | CStruct _ -> "{{\"Ann\", 91}}; members left out are not checked" | _ -> "{1, 2, 3}")
+                    e.className <- "ccall-input ccall-expect"
+                    e.oninput <- fun _ -> setExpect proto v.VName e.value
+                    el "div" "ccall-expected-row" [ txt "span" "" (sprintf "Expected %s after: " v.VName); e ])
             let expectedResult =
                 match proto.Ret with
                 | CVoid -> []
@@ -469,5 +492,5 @@ and render () =
                 | h ->
                     [ txt "div" "ccall-buf-head" "History"
                       txt "pre" "ccall-history" (h |> List.map (String.concat "\n") |> String.concat "\n") ]
-            [ chooser; caseRow; signature ] @ layouts @ [ table ] @ expectedResult @ [ buttons ] @ status @ errors @ result @ hist
+            [ chooser; caseRow; signature ] @ layouts @ varList @ [ table ] @ expectedResult @ varExpects @ [ buttons ] @ status @ errors @ result @ hist
     (header :: protoErrors @ body) |> List.iter (fun e -> root.appendChild e |> ignore)
