@@ -1842,6 +1842,8 @@ my_strcat:
         @ has "returning a struct" (errs [ "struct p { int x; };"; "struct p f(int a);" ])
         @ has "unknown struct q" (errs [ "void f(struct q *v);" ])
         @ has "unions are not supported" (errs [ "union u { int x; float f; };" ])
+        @ has "state[2+1]: an array member's size must be a number, e.g. state[3]" (errs [ "struct b { char name[27]; char state[2+1]; };" ])
+        @ has "name[N]: an array member's size must be a number" (errs [ "struct b { char name[N]; };" ])
     "struct: arrays of structs in and out", fun () ->
         let translate = """@ C: struct point { int x; int y; };
 @ C: extern void translate(struct point *pts, int n, int dx, int dy);
@@ -2048,6 +2050,8 @@ px:
     "C variables: declaration errors", fun () ->
         let errs lines = findPrototypes (lines |> List.map (fun l -> "@ C: " + l)) |> List.choose (function | Error(_, e) -> Some e | _ -> None)
         expectEq "unsized" (errs [ "int a[];" ]) [ "a[] needs an initializer to give its size" ]
+        @ expectEq "size expression" (errs [ "int counts[2+1];" ]) [ "counts[2+1]: an array's size must be a number, or [] with an initializer, e.g. counts[3]" ]
+        @ expectEq "zero size" (errs [ "char msg[0];" ]) [ "msg[0]: an array's size must be a number, or [] with an initializer, e.g. msg[3]" ]
         @ expectEq "pointer" (errs [ "char *p = \"x\";" ]) [ "pointer variables are not supported: declare an array, and pass its address" ]
         @ expectEq "twice" (errs [ "int a = 1;"; "int a = 2;" ]) [ "a is declared twice" ]
         @ expectEq "prototype still a prototype" (findPrototypes [ "@ C: struct point { int x; };"; "@ C: struct point *f(int a);" ] |> List.map (function | Ok p -> p.FName | Error(_, e) -> e)) [ "f" ]

@@ -339,7 +339,10 @@ let parseStructDef (structs : Map<string, CStructDef>) (txt : string) : Result<s
                                 if n.StartsWith "0x" then (try true, System.Convert.ToInt32(n.Substring 2, 16) with _ -> false, 0)
                                 else System.Int32.TryParse n
                             if ok && v > 0 && List.tryItem (i + 2) d = Some "]" then Ok(List.take i d, Some v)
-                            else Error(sprintf "an array member needs a size: name[%s]" n)
+                            else
+                                let name = if i > 0 then d.[i - 1] else "member"
+                                let size = d |> List.skip (i + 1) |> List.takeWhile ((<>) "]") |> String.concat ""
+                                Error(sprintf "%s[%s]: an array member's size must be a number, e.g. %s[3]" name size name)
                         | None -> Ok(d, None)
                     let decls =
                         splitOn ";" [] [] members
@@ -500,7 +503,12 @@ let parseVarDef (structs : Map<string, CStructDef>) (txt : string) : Result<CVar
             | _ -> toks, Some(Some -1)
         | None -> toks, None
     match size with
-    | Some(Some -1) -> Error "an array needs a size, or [] with an initializer"
+    | Some(Some -1) ->
+        // toks still hold the "[...]" here
+        let i = List.findIndex ((=) "[") toks
+        let name = if i > 0 then toks.[i - 1] else "array"
+        let size = toks |> List.skip (i + 1) |> List.takeWhile ((<>) "]") |> String.concat ""
+        Error(sprintf "%s[%s]: an array's size must be a number, or [] with an initializer, e.g. %s[3]" name size name)
     | _ ->
         parseDecl structs toks
         |> Result.bind (fun (name, ty) ->

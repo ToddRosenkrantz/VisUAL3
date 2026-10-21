@@ -2,6 +2,12 @@
 
 Significant changes in VisUAL3 since [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019), the version it was forked from. Newest first. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases). Older development releases are removed when a new one is published; their entries stay here.
 
+## Unreleased
+
+### Fixed
+
+- C Call: a struct member whose array size isn't a plain number, such as `char state[2+1]`, now gets an error naming that member and its size (`state[2+1]: an array member's size must be a number, e.g. state[3]`), instead of `name[2]`. C variables declared in `@ C:` comments, such as `int counts[2+1];`, name the variable in the same way.
+
 ## 3.0.0-dev.5 (2026-10-21)
 
 ### Added
