@@ -40,6 +40,16 @@ let private txt tag cls (s : string) =
     e.textContent <- s
     e
 
+/// A one-line text box whose grey hint wraps onto more lines when it is too long for the panel
+let private hintBox (value : string) (hint : string) (cls : string) (onInput : string -> unit) =
+    let e = document.createElement "textarea" :?> HTMLTextAreaElement
+    e.value <- value
+    e.placeholder <- hint
+    e.className <- cls + " ccall-hintbox"
+    e.onkeydown <- fun ev -> if ev.key = "Enter" then ev.preventDefault()
+    e.oninput <- fun _ -> onInput e.value
+    e
+
 // ///////////////////////////// parameters ///////////////////////////////////
 
 /// AAPCS (hard-float) location of argument i of proto: r0-r3, s0-s15, d0-d7 or the stack
@@ -111,16 +121,48 @@ let private valueHint t =
     | CFloat _ -> "e.g. 1.5, -0.25, 3e8"
     | _ -> ""
 
+/// "4 ints (16 bytes)": n elements of type elem, for the help and hints
+let private countOf (n : int) (elem : CType) =
+    let name = match elem with | CStruct _ -> "structs" | _ -> typeName elem + "s"
+    sprintf "%d %s (%d bytes)" n name (n * sizeOf elem)
+
 let private ptrHint kind elem =
     match kind with
     | PArray when (match elem with | CStruct _ -> true | _ -> false) ->
-        sprintf "structs, e.g. {{1, 2}, {3, 4}}; add [n] for a buffer of n (%s, %d bytes each)" (typeName elem) (sizeOf elem)
+        sprintf "e.g. {{1, 2}, {3, 4}}; add a size for spare room: {{1, 2}} [5] is %s, the rest zeroed" (countOf 5 elem)
     | PArray ->
         let example = match elem with | CFloat _ -> "{1.5, -2, 0.25}" | _ -> "{10, -2, 0x30}"
-        sprintf "elements, e.g. %s; add [n] for a buffer of n (%s, %d byte%s each)" example (typeName elem) (sizeOf elem) (if sizeOf elem = 1 then "" else "s")
-    | PString -> "text, e.g. hello\\n (a 0 byte is added); \"Hello, \" [32] for a 32-byte buffer"
-    | POut -> "number of zeroed elements, e.g. 4"
+        sprintf "e.g. %s; add a size for spare room: %s [8] is %s, the rest 0" example example (countOf 8 elem)
+    | PString -> "e.g. hello\\n (a 0 byte is added); for spare room, quote it and add a size: \"Hello, \" [32] is a 32-byte buffer"
+    | POut -> sprintf "how many zeroed elements, e.g. 4 for %s" (countOf 4 elem)
     | PAddr -> "a C variable: s, &s[1], &s[1].name; or a label, an address, or NULL"
+
+/// Worked examples of the ways to give a pointer to each of elems, shown under the parameters
+let private ptrHelp (elems : CType list) =
+    let rows (elem : CType) =
+        match elem with
+        | CStruct _ ->
+            [ "{{1, 2}, {3, 4}}", sprintf "array: %s, as typed, a C initializer per struct; members left out are 0" (countOf 2 elem)
+              "{{1, 2}} [5]", sprintf "array with a size: %s, the first as typed, the other 4 all 0" (countOf 5 elem)
+              "5", sprintf "output buffer: %s, all 0, for the function to fill in" (countOf 5 elem) ]
+        | _ ->
+            let a, b, c = match elem with | CFloat _ -> "1.5", "-2", "0.25" | _ -> "10", "20", "30"
+            let arr = sprintf "{%s, %s, %s}" a b c
+            [ yield arr, sprintf "array: %s, exactly as typed" (countOf 3 elem)
+              yield arr + " [8]", sprintf "array with a size: %s, holding %s, %s, %s and then five 0s" (countOf 8 elem) a b c
+              yield "8", sprintf "output buffer: %s, all 0, for the function to fill in" (countOf 8 elem)
+              if isCharLike elem then
+                  yield "hello", "string: 6 bytes, the letters h e l l o and a 0 byte"
+                  yield "\"Hello, \" [32]", "string with a size: a 32-byte buffer holding Hello, then 0s, with room to append (as strcat needs); the quotes are needed when a size follows" ]
+    let section (elem : CType) =
+        [ txt "div" "ccall-arghelp-head" (typeName elem + " *")
+          el "table" "ccall-arghelp"
+              (rows elem |> List.map (fun (ex, meaning) -> el "tr" "" [ el "td" "" [ txt "code" "" ex ]; txt "td" "" meaning ])) ]
+    let sizes = elems |> List.map (fun e -> sprintf "%s is %d byte%s" (typeName e) (sizeOf e) (if sizeOf e = 1 then "" else "s")) |> String.concat ", "
+    el "details" "ccall-help-details"
+        ([ txt "summary" "" "How to enter arrays, strings and buffer sizes" ]
+         @ List.collect section elems
+         @ [ txt "p" "" (sprintf "The number in [ ] after an array or a quoted string is the size of the whole buffer, counted in elements, not bytes (each %s). It must be at least as many as you typed, counting a string's 0 byte; the rest is filled with 0. Give a size whenever the function writes more than you typed." sizes) ])
 
 /// Turn a remembered input into the argument for CCall
 let rec private argOf (p : CParam) (inp : ParamInput) : Result<ArgInput, string> =
@@ -213,10 +255,7 @@ and private paramRow (proto : Prototype) (i : int) (p : CParam) =
             sel.onchange <- fun _ -> setInput proto p { inp with Text = sel.value }
             el "div" "" [ sel ]
         | CPtr(elem, _) ->
-            let input = document.createElement_input()
-            input.value <- inp.Text
-            input.placeholder <- ptrHint inp.Kind elem
-            input.className <- "ccall-input"
+            let input = hintBox inp.Text (ptrHint inp.Kind elem) "ccall-input" (fun v -> setInput proto p { (inputOf proto p) with Text = v })
             let kinds = ptrKinds elem
             let sel = document.createElement_select()
             for (k, label) in kinds do
@@ -229,19 +268,15 @@ and private paramRow (proto : Prototype) (i : int) (p : CParam) =
                 let k = kinds |> List.find (snd >> (=) sel.value) |> fst
                 setInput proto p { (inputOf proto p) with Kind = k }
                 render ()
-            input.oninput <- fun _ -> setInput proto p { (inputOf proto p) with Text = input.value }
             let expected =
                 match p.PType with
                 | CPtr(_, false) ->
-                    let e = document.createElement_input()
-                    e.value <- expectOf proto p.PName
-                    e.placeholder <-
-                        (match elem with
-                         | CStruct _ -> "expected after the call, e.g. {{11, 22}}; members left out are not checked (optional)"
-                         | _ when isCharLike elem -> "expected after the call: {…} or \"text\" (optional)"
-                         | _ -> "expected after the call, e.g. {0, 1, 4} (optional)")
-                    e.className <- "ccall-input ccall-expect"
-                    e.oninput <- fun _ -> setExpect proto p.PName e.value
+                    let hint =
+                        match elem with
+                        | CStruct _ -> "expected after the call, e.g. {{11, 22}}; members left out are not checked (optional)"
+                        | _ when isCharLike elem -> "expected after the call: {…} or \"text\" (optional)"
+                        | _ -> "expected after the call, e.g. {0, 1, 4} (optional)"
+                    let e = hintBox (expectOf proto p.PName) hint "ccall-input ccall-expect" (setExpect proto p.PName)
                     [ e :> HTMLElement ]
                 | _ -> []
             el "div" "ccall-ptr" ([ sel :> HTMLElement; input :> HTMLElement ] @ expected)
@@ -449,28 +484,26 @@ and render () =
                     el "table" "ccall-params"
                         (el "tr" "" [ txt "th" "" "in"; txt "th" "" "parameter"; txt "th" "" "argument" ]
                          :: List.mapi (paramRow proto) ps)
+            let ptrHelps =
+                match proto.Params |> List.choose (fun p -> match p.PType with | CPtr(CVoid, _) -> Some(CIntT(CChar(false, true))) | CPtr(elem, _) -> Some elem | _ -> None) |> List.distinct with
+                | [] -> []
+                | elems -> [ ptrHelp elems ]
             // what the C variables should hold after the call
             let varExpects =
                 fileVars |> List.map (fun v ->
-                    let e = document.createElement_input()
-                    e.value <- expectOf proto v.VName
-                    e.placeholder <- "optional, e.g. " + (match v.VElem with | CStruct _ -> "{{\"Ann\", 91}}; members left out are not checked" | _ -> "{1, 2, 3}")
-                    e.className <- "ccall-input ccall-expect"
-                    e.oninput <- fun _ -> setExpect proto v.VName e.value
+                    let hint = "optional, e.g. " + (match v.VElem with | CStruct _ -> "{{\"Ann\", 91}}; members left out are not checked" | _ -> "{1, 2, 3}")
+                    let e = hintBox (expectOf proto v.VName) hint "ccall-input ccall-expect" (setExpect proto v.VName)
                     el "div" "ccall-expected-row" [ txt "span" "" (sprintf "Expected %s after: " v.VName); e ])
             let expectedResult =
                 match proto.Ret with
                 | CVoid -> []
                 | t ->
-                    let e = document.createElement_input()
-                    e.value <- expectOf proto "return"
-                    e.placeholder <-
-                        (match t with
-                         | CFloat _ -> "optional, e.g. 2.5 (matched within rounding)"
-                         | CPtr _ -> "optional: a label, an address or NULL"
-                         | _ -> "optional, e.g. 6")
-                    e.className <- "ccall-input ccall-expect"
-                    e.oninput <- fun _ -> setExpect proto "return" e.value
+                    let hint =
+                        match t with
+                        | CFloat _ -> "optional, e.g. 2.5 (matched within rounding)"
+                        | CPtr _ -> "optional: a label, an address or NULL"
+                        | _ -> "optional, e.g. 6"
+                    let e = hintBox (expectOf proto "return") hint "ccall-input ccall-expect" (setExpect proto "return")
                     [ el "div" "ccall-expected-row" [ txt "span" "" (sprintf "Expected %s result: " (typeName t)); e ] ]
             let callBtn = txt "button" "btn btn-default ccall-call" "Call"
             callBtn.addEventListener ("click", fun _ -> startCall proto false)
@@ -492,5 +525,5 @@ and render () =
                 | h ->
                     [ txt "div" "ccall-buf-head" "History"
                       txt "pre" "ccall-history" (h |> List.map (String.concat "\n") |> String.concat "\n") ]
-            [ chooser; caseRow; signature ] @ layouts @ varList @ [ table ] @ expectedResult @ varExpects @ [ buttons ] @ status @ errors @ result @ hist
+            [ chooser; caseRow; signature ] @ layouts @ varList @ [ table ] @ ptrHelps @ expectedResult @ varExpects @ [ buttons ] @ status @ errors @ result @ hist
     (header :: protoErrors @ body) |> List.iter (fun e -> root.appendChild e |> ignore)

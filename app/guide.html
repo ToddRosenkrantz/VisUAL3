@@ -37,6 +37,7 @@
   th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--rule); }
   th { color: var(--muted); font-weight: 600; }
   td.ex { white-space: nowrap; }  /* examples stay on one line */
+  code.wrap { white-space: normal; }  /* long examples may break between words */
   .note { border-left: 3px solid var(--brand); padding: 4px 12px; color: var(--muted); }
   a { color: #1a6d70; }
   @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } nav { position: static; padding-bottom: 0; } }
@@ -268,11 +269,25 @@
 <span class="c">@ C: extern void curve(struct student *s, int n, int bonus);</span>
 <span class="c">@ C: extern int sum_values(const item_t *items, int n);</span></pre>
 <ul>
-  <li>Members are laid out as gcc does on ARM: each at a multiple of its own size, <code>double</code> and <code>long long</code> at a multiple of 8, and the struct padded to a multiple of its largest member. <code>__attribute__((packed))</code>, before or after the braces, removes all padding. The panel shows each struct's layout, e.g. <code>struct student: 32 bytes, aligned to 8: char name[16] at 0, int score at 16, double gpa at 24</code>.</li>
+  <li>Members are laid out as gcc does on ARM: each at a multiple of its own size, <code>double</code> and <code>long long</code> at a multiple of 8, and the struct padded to a multiple of its largest member. <code>__attribute__((packed))</code>, before or after the braces, removes all padding. The panel shows each struct's layout, e.g. <code class="wrap">struct student: 32 bytes, aligned to 8: char name[16] at 0, int score at 16, double gpa at 24</code>.</li>
   <li>Enter the array as a C initializer: <code>{{"Ann", 90, 3.5}, {"Bob", 75, 2.8}}</code>. Members left out are zero; a <code>char</code> array member takes a string, other array members <code>{1, 2, 3}</code>. <code>[n]</code> after it makes room for n structs.</li>
   <li>Members can be numbers, <code>_Bool</code>, pointers (given as addresses) and fixed arrays. Structs inside structs, unions, and structs passed or returned by value are not supported.</li>
   <li>The result shows a row per struct and a column per member; changed members show <i>before → after</i>. An expected value such as <code>{{"Ann", 95}, {"Bob", 80}}</code> checks only the members it gives.</li>
   <li>A packed struct's members can be at odd addresses: <code>ldr r3, [r0, #1]</code> loads one, as unaligned loads work on ARMv7 Linux (unless Strict Alignment is on).</li>
+</ul>
+<p>Entering an array of <code>struct student</code> (32 bytes each: <code>name</code> at 0, <code>score</code> at 16, <code>gpa</code> at 24). Each struct is a C initializer in braces, its members in declaration order:</p>
+<table>
+  <tr><th>Kind</th><th>You type</th><th>Memory gets</th></tr>
+  <tr><td>array</td><td class="mono">{{"Ann", 90, 3.5}, {"Bob", 75, 2.8}}</td><td>2 structs (64 bytes): Ann with score 90 and gpa 3.5, then Bob with 75 and 2.8.</td></tr>
+  <tr><td>array</td><td class="mono">{{"Ann", 90}, {"Bob"}}</td><td>2 structs. Members left out are 0: Ann's gpa is 0.0, Bob's score is 0 and his gpa 0.0.</td></tr>
+  <tr><td>array</td><td class="mono">{"Ann", 90, 3.5}</td><td>1 struct. A single struct may skip the outer braces.</td></tr>
+  <tr><td>array</td><td class="mono">{{"Ann", 90, 3.5}} [4]</td><td>4 structs (128 bytes): Ann, then 3 structs that are all 0, for a function that adds entries.</td></tr>
+  <tr><td>output buffer</td><td class="mono">4</td><td>4 structs, all 0, for the function to fill in.</td></tr>
+</table>
+<ul>
+  <li>A <code>char</code> array member takes a string, which must fit with its 0 byte unless it fills the array exactly: <code>name[16]</code> holds up to 16 characters. Other array members take braces: <code>{1, 2, 3}</code> for <code>int marks[3]</code>.</li>
+  <li>Members cannot be named or skipped: to set <code>gpa</code> you must give <code>name</code> and <code>score</code> before it.</li>
+  <li>Pass the count separately, as C would: for <code>curve(struct student *s, int n, int bonus)</code>, <code>n</code> is 2 for the first row above.</li>
 </ul>
 <h3>C variables: data in memory, passed by address</h3>
 <p>To call functions on the same data as a C program would, declare it as C variables in <code>@ C:</code> comments, then give pointer arguments as addresses into them, as the C code would pass them:</p>
@@ -294,6 +309,38 @@
   <li><code>float</code> and <code>double</code> results match if they are within a relative 10<sup>−6</sup> (double: 10<sup>−12</sup>) of the expected value, so ordinary rounding differences pass.</li>
   <li>Expectations are part of the case and are saved in the <code>.ccall</code> file.</li>
 </ul>
+<h3>Checking a struct function's results</h3>
+<p>To make a case say whether the assembly code is correct, fill in what each struct should hold after the call in the <b>expected after the call</b> box under the argument (it appears for pointers that are not <code>const</code>, as only those can be changed), and the result in <b>Expected … result</b> if the function returns one. Take this function, which should add <code>bonus</code> to every score:</p>
+<pre><span class="c">@ C: struct student { char name[16]; int score; double gpa; };</span>
+<span class="c">@ C: extern void curve(struct student *s, int n, int bonus);</span>
+        <span class="d">.global</span> curve
+<span class="l">curve:</span>
+        <span class="k">cmp</span>     <span class="r">r1</span>, <span class="n">#0</span>
+        <span class="k">bxle</span>    <span class="r">lr</span>
+<span class="l">1:</span>      <span class="k">ldr</span>     <span class="r">r3</span>, [<span class="r">r0</span>, <span class="n">#16</span>]      <span class="c">@ s-&gt;score</span>
+        <span class="k">add</span>     <span class="r">r3</span>, <span class="r">r3</span>, <span class="r">r2</span>
+        <span class="k">str</span>     <span class="r">r3</span>, [<span class="r">r0</span>, <span class="n">#16</span>]
+        <span class="k">add</span>     <span class="r">r0</span>, <span class="r">r0</span>, <span class="n">#32</span>       <span class="c">@ next struct</span>
+        <span class="k">subs</span>    <span class="r">r1</span>, <span class="r">r1</span>, <span class="n">#1</span>
+        <span class="k">bne</span>     1b
+        <span class="k">bx</span>      <span class="r">lr</span></pre>
+<p>Give <code>s</code> the array <code>{{"Ann", 90, 3.5}, {"Bob", 75, 2.8}}</code>, <code>n</code> 2 and <code>bonus</code> 5. The scores should become 95 and 80, so type <code>{{"Ann", 95}, {"Bob", 80}}</code> as the expected contents of <code>s</code>. Press <b>Call</b>; the result starts with a line per check:</p>
+<table>
+  <tr><th>Expected <code>s</code></th><th>The check shows</th></tr>
+  <tr><td class="mono ex">{{"Ann", 95}, {"Bob", 80}}</td><td class="mono">✔ s: {{"Ann", 95, 3.5}, {"Bob", 80, 2.8}}, as expected</td></tr>
+  <tr><td class="mono ex">{{"Ann", 95}, {"Bob", 81}}</td><td class="mono">✘ s: s[1].score: expected 81, got 80</td></tr>
+  <tr><td class="mono ex">{{"Ann", 95, 3.6}}</td><td class="mono">✘ s: s[0].gpa: expected 3.6, got 3.5</td></tr>
+  <tr><td class="mono ex">{{"Al", 95}}</td><td class="mono">✘ s: s[0].name[1]: expected 'l', got 'n'; s[0].name[2]: expected 0, got 'n'</td></tr>
+</table>
+<ul>
+  <li><b>Only what you write is checked.</b> Structs are compared from the first: <code>{{"Ann", 95}}</code> checks only <code>s[0]</code>. Within a struct, members are compared in order and those left off the end are not checked, so <code>{{"Ann", 95}}</code> ignores <code>gpa</code>. To check a later member, give the ones before it too.</li>
+  <li>To catch code that changes a member it should leave alone, write those members too. <code>{{"Ann", 95, 3.5}, {"Bob", 80, 2.8}}</code> fails if the code also overwrites <code>gpa</code>; <code>{{"Ann", 95}, {"Bob", 80}}</code> would not notice.</li>
+  <li>A string for a <code>char</code> array member checks its characters and the 0 byte after them; the bytes after that are not checked. An array member such as <code>{1, 2}</code> checks only the elements given.</li>
+  <li><code>float</code> and <code>double</code> members match within rounding (a relative 10<sup>−6</sup>, double 10<sup>−12</sup>); everything else must match exactly. Up to four wrong members are listed, then "and n more".</li>
+  <li>A function that returns a pointer into the array, such as <code>struct student *find_student(…)</code>, can be expected as <code>&amp;s[1]</code>; one returning a number, as the number. Both are checked along with the array.</li>
+  <li>For data declared as C variables, use the <b>Expected s after</b> box below the arguments; it works the same way.</li>
+  <li>The table under the checks shows every struct before and after, with changed members as <i>before → after</i> (here <code>90 → 95</code>), which helps find what went wrong. Save the case with <b>Save as</b> to keep the arguments and expectations in the <code>.ccall</code> file, so the check can be rerun after each change to the code; History counts how many checks passed each time.</li>
+</ul>
 <h3>How arguments are passed</h3>
 <ul>
   <li>Integer and pointer arguments go in r0–r3, the rest on the stack at <code>[sp]</code>, <code>[sp, #4]</code>, … SP is a multiple of 8 at the call.</li>
@@ -312,8 +359,26 @@
   <tr><td class="mono">float, double</td><td>A number such as <code>1.5</code>, <code>-0.25</code> or <code>3e8</code>. Arrays of them take elements such as <code>{1.5, 2, 0.1}</code>.</td></tr>
   <tr><td class="mono">int *a, const short *p, int a[]</td><td><b>array</b>: elements such as <code>{10, 20, 30}</code>. <b>output buffer</b>: a number of zeroed elements. <b>address</b>: a label, an address or <code>NULL</code>.</td></tr>
   <tr><td class="mono">char *s, const char *s, void *p</td><td>The same, or <b>string</b>: text such as <code>hello\n</code>. A zero byte is added.</td></tr>
-  <tr><td class="mono">a buffer with room to spare</td><td>Add the size after an array or a quoted string: <code>"Hello, " [32]</code> puts the string in a 32-byte buffer, and <code>{1, 2, 3} [10]</code> gives 10 elements. The rest is zeroed.</td></tr>
+  <tr><td class="mono">a buffer with room to spare</td><td>Add a size in square brackets: <code>{1, 2, 3} [10]</code> or <code>"Hello, " [32]</code>. See <a href="#c-arrays">Arrays and buffer sizes</a> below.</td></tr>
 </table>
+<h3 id="c-arrays">Arrays and buffer sizes</h3>
+<p>For a pointer parameter, the panel builds the array in memory and passes its address. The drop-down beside the argument picks how you describe it; the examples below are for <code>int *a</code>, where each element is 4 bytes. <b>How to enter a pointer to …</b> under the parameters shows the same examples for the function's own types.</p>
+<table>
+  <tr><th>Kind</th><th>You type</th><th>Memory gets</th></tr>
+  <tr><td>array</td><td class="mono">{10, 20, 30}</td><td>3 ints (12 bytes): 10, 20, 30.</td></tr>
+  <tr><td>array</td><td class="mono">{10, 20, 30} [8]</td><td>8 ints (32 bytes): 10, 20, 30, 0, 0, 0, 0, 0.</td></tr>
+  <tr><td>output buffer</td><td class="mono">8</td><td>8 ints (32 bytes), all 0, for the function to fill in.</td></tr>
+  <tr><td>string (<code>char *</code>)</td><td class="mono">hello</td><td>6 bytes: <code>h e l l o</code> and the 0 byte.</td></tr>
+  <tr><td>string (<code>char *</code>)</td><td class="mono">"Hello, " [32]</td><td>32 bytes: <code>Hello, </code>, then 25 zero bytes, leaving room to append.</td></tr>
+  <tr><td>array (<code>struct point *</code>)</td><td class="mono">{{1, 2}} [5]</td><td>5 structs: the first is {1, 2}, the other four are all 0.</td></tr>
+</table>
+<ul>
+  <li>The number in <code>[ ]</code> is the size of the whole buffer, counted in <b>elements</b>, not bytes. <code>{1, 2} [8]</code> for <code>int *</code> is 8 ints (32 bytes); for <code>char *</code> it would be 8 bytes; for <code>double *</code>, 64 bytes.</li>
+  <li>It must be at least as many elements as you typed. A string counts its 0 byte too, so <code>"Hello" [5]</code> is an error and <code>"Hello" [6]</code> just fits.</li>
+  <li>A string followed by a size must be in double quotes: <code>"Hi" [16]</code>. Without a size the quotes are optional.</li>
+  <li>Without a size, the buffer is exactly as long as what you typed. A function that writes past the end then overwrites whatever follows, so give a size whenever the function adds to the array or string.</li>
+  <li>The function only gets the address. Pass the length in its own parameter if it needs it: for <code>sum_array(const int *a, int n)</code>, give <code>a</code> as <code>{10, 20, 30}</code> and <code>n</code> as <code>3</code>.</li>
+</ul>
 <p>For example, to show <code>strcat</code>, give <code>dest</code> the string <code>"Hello, " [32]</code> and <code>src</code> the string <code>world</code>, and expect <code>dest</code> to hold <code>"Hello, world"</code>. Char buffers are also shown as text before and after the call.</p>
 <pre><span class="c">@ C: extern char *my_strcat(char *dest, const char *src);</span>
         <span class="d">.global</span> my_strcat
@@ -346,7 +411,7 @@
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
   <li>Exclusive loads and stores (<code>ldrex</code>, <code>strex</code>), and saturating and SIMD instructions.</li>
   <li>Macros, <code>.include</code> and conditional assembly (<code>.if</code>).</li>
-  <li>In C calls: <code>long double</code>, structs, variadic functions and function pointers.</li>
+  <li>In C calls: <code>long double</code>, structs passed or returned by value (pointers to structs work), variadic functions and function pointers.</li>
 </ul>
 <p>References: <a href="https://sourceware.org/binutils/docs/as/ARM_002dDependent.html">GNU as: ARM-dependent features</a>, <a href="https://developer.arm.com/documentation/ddi0406/latest/">Arm Architecture Reference Manual, ARMv7-A and ARMv7-R</a>.</p>
 </main>

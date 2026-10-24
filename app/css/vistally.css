@@ -443,7 +443,9 @@ div.after {
 .ccall-case-name { width: 120px; font-size: 12px; padding: 2px 4px; }
 .ccall-case-btn { font-size: 12px; padding: 1px 8px; }
 .ccall-expect { background: #fbfaf2; }
-.ccall-expected-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; white-space: nowrap; }
+.ccall-expected-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.ccall-expected-row > span { white-space: nowrap; }
+.ccall-expected-row > .ccall-input { flex: 1; min-width: 0; }
 .ccall-layout { font-family: "Fira Code", monospace; font-size: 11px; color: #555; margin: 2px 0 6px; }
 .ccall-struct td { white-space: nowrap; }
 .ccall-astext { font-family: "Fira Code", monospace; font-size: 12px; margin: 2px 0 4px; white-space: pre-wrap; }
@@ -457,7 +459,10 @@ div.after {
 .ccall-loc { font-family: "Fira Code", monospace; color: #1a5fa0; white-space: nowrap; }
 .ccall-param { font-family: "Fira Code", monospace; white-space: nowrap; }
 .ccall-ptr { display: flex; flex-direction: column; gap: 3px; }
+.ccall-ptr select { width: 100%; min-width: 0; }
 .ccall-input { width: 100%; box-sizing: border-box; font-family: "Fira Code", monospace; font-size: 12px; padding: 3px 5px; }
+/* textarea that looks like a one-line input but grows to fit a long hint or value */
+.ccall-hintbox { display: block; resize: none; overflow: hidden; field-sizing: content; min-height: 0; line-height: 1.35; }
 .ccall-buttons { margin: 8px 0; display: flex; gap: 6px; }
 .ccall-call { font-weight: bold; }
 .ccall-result { background: #fff; border: 1px solid #bbb; border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
@@ -473,6 +478,14 @@ div.after {
 .ccall-problem { color: #9a6700; margin: 3px 0; }
 .ccall-history { max-height: 160px; overflow-y: auto; }
 .ccall-help p { margin: 6px 0; }
+.ccall-help-details { margin: 4px 0 6px; font-size: 12px; color: #333; }
+.ccall-help-details summary { cursor: pointer; color: #1a5fa0; }
+.ccall-help-details p { margin: 4px 0; }
+.ccall-arghelp { width: 100%; border-collapse: collapse; margin: 2px 0 6px; }
+.ccall-arghelp td { padding: 2px 6px; vertical-align: top; border-top: 1px solid #ddd; white-space: normal; }
+.ccall-arghelp-head { font-family: "Fira Code", monospace; font-weight: bold; margin-top: 6px; }
+.ccall-arghelp td:first-child { white-space: nowrap; }
+.ccall-arghelp code { font-family: "Fira Code", monospace; font-size: 12px; background: #fff; }
 
 /* ---------------------------- Toolbar: always one row ----------------------------
    Flex row instead of photon's floats. The status box gives up width first;
