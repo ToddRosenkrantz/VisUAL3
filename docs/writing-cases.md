@@ -248,7 +248,7 @@ Put a copy of the `.ccall` beside your solution, with the same name, open the so
 
 ### From the command line
 
-The VisUAL3 repository has a checker that runs every case in a folder, with the same emulator and checks as the panel. It needs a source checkout, built once. While the repository is private, ask its owner for access, or check in the app as above.
+The VisUAL3 repository has a checker that runs every case in a folder, with the same emulator and checks as the panel. It needs a source checkout, built once. The repository becomes public with the 3.0.0 release; before that, ask its owner for access, or check in the app as above.
 
 ```
 git clone https://github.com/ToddRosenkrantz/VisUAL3.git
