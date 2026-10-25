@@ -16,6 +16,8 @@ Download the zip for your platform from the [Releases page](https://github.com/T
 
 [CHANGELOG.md](CHANGELOG.md) lists every significant change since VisUAL2.
 
+Instructors: [docs/writing-cases.md](docs/writing-cases.md) explains how to write C Call cases for exercises and check them with `npm run check-cases`.
+
 The builds are not code-signed. On Windows choose **More info → Run anyway** at the SmartScreen warning; on macOS right-click the app and choose **Open** the first time.
 
 ## Writing code
