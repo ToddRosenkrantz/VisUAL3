@@ -562,6 +562,15 @@ let gnuSyntaxTests = [
        tbl: .word w, b""",
     [ Reg (R1, 0xFF030201u); Reg (R3, 5u); Reg (R5, 0x200u) ]
 
+    ".byte with quoted character lists",
+    """    ldr r0, =b
+           ldr r1, [r0]
+           ldr r2, [r0, #4]
+           .data
+       b:  .byte 'a', 'b', ',', '\n'
+           .byte 'c, 'd, 0, 'e'""",
+    [ Reg (R1, 0x0A2C6261u); Reg (R2, 0x65006463u) ]
+
     ".equ / .set / = and GNU expression operators",
     """    .equ SIZE, 1 << 4
            .set MASK, SIZE - 1
@@ -1557,6 +1566,8 @@ let cTests : (string * (unit -> string list)) list = [
         | Ok(setup, _) -> expectEq "argument words" setup.ArgWords [ 0xFFFFFFFFu; 0xFFFFFFFEu; 200u; 0xFFFFu ]
         | Error e -> [ e ]
     "call: char literal argument", fun () -> returns "@ C: int id(char c)\n.global id\nid: bx lr" [ "'A'" ] 65L 0
+    "call: array of quoted characters", fun () ->
+        returns "@ C: int third(const char *a)\n.global third\nthird: ldrb r0, [r0, #2]\nbx lr" [ "{'a', ',', 'c'}" ] 99L 0
     "call: char result shown as character", fun () ->
         match cCall "@ C: char next(char c)\n.global next\nnext: add r0, r0, #1\nbx lr" [ "'A'" ] with
         | Ok(_, res) -> expectEq "return text" res.ReturnText "66 'B'"

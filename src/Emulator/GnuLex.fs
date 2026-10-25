@@ -81,9 +81,13 @@ let splitArgs (txt : string) : string list =
                 cur.Append '"' |> ignore
                 i <- i + 1
         | '\'' ->
+            // a character: GNU 'a or 'a' (and '\n or '\n'); the closing quote is optional
             let len = if i + 1 < n && txt.[i + 1] = '\\' then 3 else 2
             cur.Append(txt.Substring(i, min len (n - i))) |> ignore
             i <- i + len
+            if i < n && txt.[i] = '\'' then
+                cur.Append '\'' |> ignore
+                i <- i + 1
         | ',' ->
             parts.Add(cur.ToString().Trim())
             cur.Clear() |> ignore
