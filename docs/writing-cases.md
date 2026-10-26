@@ -38,7 +38,7 @@ HW4_2c.ccall   the cases for the functions in HW4_2c.s
 ## 2. The workflow
 
 1. **Write a reference solution** to the exercise in assembly. Keep it private: it never goes in the folder students get.
-2. **Write the starter file** students receive: the `@ C:` prototype, `.global`, and a stub. It must assemble.
+2. **Write the starter file** students receive: comments only, quoting the question, with the `@ C:` prototype (and any struct declarations). Students write `.global`, the label and the code themselves.
 3. **Make the cases**, in the panel or by writing the `.ccall` directly (sections 4–6). Each case has a descriptive name, the arguments, and what the call should produce.
 4. **Verify** that every case passes against the reference solution (section 9).
 5. **Mutation-test:** copy the solution, plant a typical student mistake (a signed compare instead of unsigned, a missing `pop`, a missing string terminator), and check that some case fails. If none does, add a case that would catch it.
@@ -48,18 +48,24 @@ HW4_2c.ccall   the cases for the functions in HW4_2c.s
 
 ### The prototype
 
-Each callable function needs a C prototype in a comment that starts with `@ C:`, and a `.global` directive:
+Each callable function needs a C prototype in a comment that starts with `@ C:`. The starter is just comments:
 
 ```
 @ CSE2312 Fall 2026, Homework 2, question 4a
 @ uint32_t subU32(uint32_t x, uint32_t y) // returns x-y
 @ C: extern uint32_t subU32(uint32_t x, uint32_t y);
 
+@ Write the function below. Open the C Call tab to run the saved test cases,
+@ which check the result and the calling convention.
+```
+
+The student writes the rest, as they would for a C program to link against:
+
+```
         .global subU32
         .text
-
 subU32:
-        @ your code here
+        sub     r0, r0, r1
         bx      lr
 ```
 
@@ -71,7 +77,7 @@ subU32:
   - An array parameter can be written `const int32_t x[]`.
 - **Returns:** `void`, any of the above except arrays.
 - **Not supported:** structs passed or returned by value, `long double`, variadic functions and function pointers.
-- **The stub:** `bx lr` returns whatever is in r0, which is the first argument. A few cases may therefore pass on the stub alone, e.g. `maxS16(7, 3)` = 7. That is harmless, but don't rely on such cases to show a student's code works.
+- **No code in the starter:** until the student writes the label, **Call** reports ``undefined reference to `subU32': no label subU32: in the assembly code``, and without `.global` the panel warns that a C program could not link to it. Leaving out a stub also means no case passes by accident: a `bx lr` stub returns the first argument, so `maxS16(7, 3)` = 7 would pass on it.
 
 ### Structs
 
@@ -282,7 +288,7 @@ npm run check-cases -- <cases-folder> [solutions-folder]
 # all cases pass against the reference solutions
 npm run check-cases -- "Homework/VisUAL3" "Homework/VisUAL3_solutions"
 
-# the starters assemble and their cases run (most fail, as the stubs do nothing)
+# the starters load and their cases run; every case fails with "no label", as the starters hold no code
 npm run check-cases -- "Homework/VisUAL3"
 ```
 
@@ -325,12 +331,8 @@ HW4 question 2c: *`void leftString(char * strOut, const char * strIn, uint32_t l
 @ void leftString(char * strOut, const char * strIn, uint32_t length)
 @ C: extern void leftString(char *strOut, const char *strIn, uint32_t length);
 
-        .global leftString
-        .text
-
-leftString:
-        @ your code here
-        bx      lr
+@ Write the function below. Open the C Call tab to run the saved test cases,
+@ which check the result and the calling convention.
 ```
 
 **2. Cases.** The function returns nothing, so every case checks `strOut` after the call. `strOut` starts as 15 `X`s, so the output must end with its own 0 byte.
