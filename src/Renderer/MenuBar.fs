@@ -284,8 +284,8 @@ let testMenu() =
 /// GPL "Appropriate Legal Notices": copyright, no warranty, and how to see the licence
 let licenseNoticeHtml () =
     sprintf "<h4>VisUAL3 v%s</h4>" Refs.appVersion +
-    "<p>Copyright &copy; 2026 Todd Rosenkrantz.<br>Based on VisUAL2, copyright &copy; 2018&ndash;2019 " +
-    "Dr T. Clarke, Imperial College London, and the VisUAL2 contributors.</p>" +
+    "<p>Copyright &copy; 2026 Dr. Todd Rosenkrantz, The University of Texas at Arlington.<br>Based on VisUAL2, copyright &copy; 2018&ndash;2019 " +
+    "Dr. Thomas Clarke, Imperial College London, and the VisUAL2 contributors.</p>" +
     "<p>VisUAL3 is free software: you can redistribute it and/or modify it under the terms of " +
     "the GNU General Public License version 3.</p>" +
     "<p>It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even " +

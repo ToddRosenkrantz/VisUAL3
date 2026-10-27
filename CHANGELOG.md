@@ -107,7 +107,7 @@ New in VisUAL3. Write a C prototype in an `@ C:` comment, such as `@ C: extern i
 
 ## Licence and documentation
 
-- Released under the GNU General Public License version 3 (GPL-3.0-only), with the permission of Dr T. Clarke for the VisUAL2 code. `CREDITS.md` names the VisUAL2 authors and contributors.
+- Released under the GNU General Public License version 3 (GPL-3.0-only), with the permission of Dr. Thomas Clarke for the VisUAL2 code. `CREDITS.md` names the VisUAL2 authors and contributors.
 - A new README; `docs/index.md` describes this fork and `docs/guide.md` points to the built-in guide.
 
 ## Removed or not supported

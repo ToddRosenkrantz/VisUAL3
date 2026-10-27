@@ -126,11 +126,11 @@ The renderer runs with Node integration on (`nodeIntegration: true`, `contextIso
 
 ## Credits
 
-VisUAL3 is built on [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2), created by Dr T. Clarke and the 2018 third-year HLP students at Imperial College London, who wrote and tested it. VisUAL2 was inspired by Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). [CREDITS.md](CREDITS.md) names the contributors and lists the third-party components and their licences.
+VisUAL3 is built on [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2), created by Dr. Thomas Clarke and the 2018 third-year HLP students at Imperial College London, who wrote and tested it. VisUAL2 was inspired by Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). [CREDITS.md](CREDITS.md) names the contributors and lists the third-party components and their licences.
 
 ## Licence
 
-VisUAL3 is free software, released under the [GNU General Public License version 3](LICENSE) (GPL-3.0-only), with the permission of Dr T. Clarke for the VisUAL2 code it is built on. You may use, study, share and modify it under the terms of that licence. Anyone who distributes a modified version must release its source under the same licence. It comes with no warranty.
+VisUAL3 is free software, released under the [GNU General Public License version 3](LICENSE) (GPL-3.0-only), with the permission of Dr. Thomas Clarke for the VisUAL2 code it is built on. You may use, study, share and modify it under the terms of that licence. Anyone who distributes a modified version must release its source under the same licence. It comes with no warranty.
 
-- Copyright © 2018–2019 Dr T. Clarke, Imperial College London, and the VisUAL2 contributors
-- Copyright © 2026 Todd Rosenkrantz (VisUAL3)
+- Copyright © 2018–2019 Dr. Thomas Clarke, Imperial College London, and the VisUAL2 contributors
+- Copyright © 2026 Dr. Todd Rosenkrantz, The University of Texas at Arlington (VisUAL3)

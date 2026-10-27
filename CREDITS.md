@@ -2,11 +2,11 @@
 
 ## VisUAL3
 
-VisUAL3 (2026) was developed by Todd Rosenkrantz from VisUAL2: GNU assembler syntax, new instructions, the C Call panel, and a port to current tools.
+VisUAL3 (2026) was developed by Dr. Todd Rosenkrantz, The University of Texas at Arlington, from VisUAL2: GNU assembler syntax, new instructions, the C Call panel, and a port to current tools.
 
 ## VisUAL2
 
-VisUAL3 is built on [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2), created by **Dr T. Clarke** and the 2018 third-year HLP students in the Department of Electrical and Electronic Engineering, **Imperial College London**, who wrote and tested it. Dr Clarke gave permission for VisUAL2 to be released under the GNU General Public License version 3.
+VisUAL3 is built on [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2), created by **Dr. Thomas Clarke** and the 2018 third-year HLP students in the Department of Electrical and Electronic Engineering, **Imperial College London**, who wrote and tested it. Dr. Thomas Clarke gave permission for VisUAL2 to be released under the GNU General Public License version 3.
 
 Substantive contributors named in the [VisUAL2 acknowledgements](https://github.com/ImperialCollegeLondon/Visual2/wiki/Acknowledgements):
 

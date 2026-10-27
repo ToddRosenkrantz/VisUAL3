@@ -4,7 +4,7 @@ VisUAL3 is a desktop emulator for learning ARM assembly. You write ARMv7-A (A32)
 
 Its **C Call** panel calls your assembly functions the way compiled C would. You write the C prototype in a comment, enter the arguments, and the panel passes them as the ARM calling convention (AAPCS) requires. `float` and `double` use the hard-float convention, as on armv7hf Linux. It then shows the return value, any arrays before and after the call, and calling-convention mistakes such as not preserving r4–r11. Arguments can be kept as named cases, saved beside the source as a `.ccall` file.
 
-VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) from Imperial College London, which reimplemented Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). The fork replaces VisUAL2's own assembler syntax with GNU syntax and moves it to current tools. VisUAL2 was created by Dr T. Clarke and the 2018 HLP students at Imperial College London. VisUAL3 is free software under the [GNU GPL version 3](../LICENSE); see the [credits](../CREDITS.md).
+VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) from Imperial College London, which reimplemented Salman Arif's [VisUAL](https://salmanarif.bitbucket.io/visual/). The fork replaces VisUAL2's own assembler syntax with GNU syntax and moves it to current tools. VisUAL2 was created by Dr. Thomas Clarke and the 2018 HLP students at Imperial College London. VisUAL3 is free software under the [GNU GPL version 3](../LICENSE); see the [credits](../CREDITS.md).
 
 ## Using it
 
