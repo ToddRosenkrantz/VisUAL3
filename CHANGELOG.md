@@ -1,6 +1,6 @@
 # Changes from VisUAL2 to VisUAL3
 
-VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019). This document lists the significant ways VisUAL3 differs from it. It brings together everything from the development builds 3.0.0-dev to 3.0.0-dev.7 (October 2026), and will be the change list for the 3.0.0 release. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases).
+VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019). This document lists the significant ways VisUAL3 differs from it. It brings together everything from the development builds 3.0.0-dev to 3.0.0-dev.9.0.1 (October 2026), and will be the change list for the 3.0.0 release. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases).
 
 In short:
 
@@ -96,7 +96,6 @@ New in VisUAL3. Write a C prototype in an `@ C:` comment, such as `@ C: extern i
 - Hover help, the Help menu, the demo program and the built-in assembly language guide (F1) cover GNU syntax, the new instructions, floating point and the C Call panel.
 - **Help → License (GNU GPL v3)** shows the licence; **Help → About** gives the credits.
 - When two open files have the same name, such as a solution and a starter, their tabs show as much of each folder as tells them apart (`HW4_2c.s — VisUAL3/HW4`, `HW4_2c.s — VisUAL3_solutions/HW4`). A tab's tooltip is its file's full path.
-- Fixed: pasting in the editor with Ctrl+V, Shift+Insert or the right-click Paste did nothing; only Edit → Paste worked.
 - Fixed: the layout at small window sizes, the register display at startup and after reset, tooltips, the editor cursor drifting away from the text, and the Preferences checkboxes showing fixed defaults instead of the saved settings.
 - A PNG window icon on Linux. The app's settings are kept separately from VisUAL2's.
 
