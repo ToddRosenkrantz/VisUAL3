@@ -39,6 +39,7 @@ open ExecutionTop
 let setTabFilePath id path =
     let fp = (tabFilePath id)
     fp.innerHTML <- path
+    refreshTabFolders()
 
 let getTabFilePath id =
     let fp = (tabFilePath id)

@@ -124,7 +124,35 @@ let getTabName id =
 
 // Determines if a tab of a given id is unsaved
 let isTabUnsaved id =
-    (Refs.fileTab id)?lastElementChild?classList?contains("unsaved") : bool
+    (Refs.fileTabName id).classList.contains "unsaved"
+
+/// Show the folder after the name of tabs whose files share a name, using as many of the
+/// last folders as it takes to tell them apart; every saved tab's tooltip is its full path.
+let refreshTabFolders() =
+    let folders (path : string) =
+        path.Split [| '/'; '\\' |] |> Array.filter ((<>) "") |> Array.toList |> List.rev
+    let tabs =
+        Refs.fileTabList
+        |> List.filter (fun id -> Some id <> Refs.settingsTab)
+        |> List.map (fun id -> id, (Refs.tabFilePath id).textContent)
+    tabs |> List.iter (fun (id, path) ->
+        (Refs.fileTab id).title <- path
+        (Refs.tabFolderName id).textContent <- "")
+    tabs
+    |> List.filter (fun (_, path) -> path <> "")
+    |> List.groupBy (fun (_, path) -> (folders path |> List.head).ToLower())
+    |> List.filter (fun (_, group) -> List.length group > 1)
+    |> List.iter (fun (_, group) ->
+        let dirs = group |> List.map (fun (id, path) -> id, List.tail (folders path))
+        let longest = dirs |> List.map (snd >> List.length) |> List.max
+        let suffix n d = List.truncate n d |> List.rev |> String.concat "/"
+        let n =
+            [ 1 .. max 1 longest ]
+            |> List.tryFind (fun n ->
+                let s = dirs |> List.map (snd >> suffix n >> fun s -> s.ToLower())
+                List.length (List.distinct s) = List.length s)
+            |> Option.defaultValue longest
+        dirs |> List.iter (fun (id, d) -> (Refs.tabFolderName id).textContent <- suffix n d))
 
 let deleteFileTab id =
     let isSettingsTab =
@@ -161,6 +189,7 @@ let deleteFileTab id =
         Tooltips.deleteAllContentWidgets()
         Refs.fileTabMenu.removeChild (Refs.fileTab id) |> ignore
         Refs.fileViewPane.removeChild (Refs.fileView id) |> ignore
+        refreshTabFolders()
         match isSettingsTab with
         | true ->
             Refs.settingsTab <- Microsoft.FSharp.Core.option.None
@@ -201,6 +230,9 @@ let createTab name =
         ELEMENT "span" [ "tab-file-name" ] []
         |> INNERHTML name
         |> ID(Refs.tabNameIdFormatter id)
+        // folder, shown when another tab's file has the same name
+        ELEMENT "span" [ "tab-file-folder" ] []
+        |> ID(sprintf "file-view-folder-%d" id)
     ]
     |> ID(Refs.fileTabIdFormatter id)
     |> CLICKLISTENER(fun _ -> selectFileTab id)
@@ -224,6 +256,17 @@ let findNamedFile (name : string) =
             normalisePath path = normalisePath name)
         |> Core.Option.map (fun (_, id) -> id)
 
+let mutable private pasteFixed = false
+
+/// Monaco takes an Electron renderer for VS Code, and its paste command (Ctrl+V, Shift+Insert and
+/// the right-click Paste) uses a native clipboard service the standalone editor lacks, so it pasted
+/// nothing. Replace the command with the paste Edit > Paste does; the newest registration wins.
+let fixPaste() =
+    if not pasteFixed then
+        pasteFixed <- true
+        window?monaco?editor?registerCommand ("editor.action.clipboardPasteAction", fun () ->
+            Interop.currentWebContents()?paste () |> ignore) |> ignore
+
 let createNamedFileTab fName fPath =
     match findNamedFile fPath with
     | Some id ->
@@ -239,6 +282,7 @@ let createNamedFileTab fName fPath =
             editor?onDidChangeModelContent (fun _ ->
                 setTabUnsaved id // Set the unsaved icon in the tab
                 ) |> ignore
+            fixPaste()
             Refs.editors <- Map.add id editor Refs.editors
 
         // Create the new fileView div

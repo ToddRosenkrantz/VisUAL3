@@ -293,6 +293,8 @@ let fileTabName id = getHtml <| tabNameIdFormatter id
 let tabFilePathIdFormatter = sprintf "file-view-path-%d"
 /// get (invisible)  element containing file path
 let tabFilePath id = getHtml <| tabFilePathIdFormatter id
+/// get element showing the folder of a tab whose file name another tab shares
+let tabFolderName id = getHtml <| sprintf "file-view-folder-%d" id
 /// get the editor window overlay element
 
 //--------------- Simulation Indicator elements----------------------

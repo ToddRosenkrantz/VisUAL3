@@ -95,6 +95,8 @@ New in VisUAL3. Write a C prototype in an `@ C:` comment, such as `@ C: extern i
 - Pointer and stack tooltips cover the VFP loads and stores, showing each register's value as a float and in hex.
 - Hover help, the Help menu, the demo program and the built-in assembly language guide (F1) cover GNU syntax, the new instructions, floating point and the C Call panel.
 - **Help → License (GNU GPL v3)** shows the licence; **Help → About** gives the credits.
+- When two open files have the same name, such as a solution and a starter, their tabs show as much of each folder as tells them apart (`HW4_2c.s — VisUAL3/HW4`, `HW4_2c.s — VisUAL3_solutions/HW4`). A tab's tooltip is its file's full path.
+- Fixed: pasting in the editor with Ctrl+V, Shift+Insert or the right-click Paste did nothing; only Edit → Paste worked.
 - Fixed: the layout at small window sizes, the register display at startup and after reset, tooltips, the editor cursor drifting away from the text, and the Preferences checkboxes showing fixed defaults instead of the saved settings.
 - A PNG window icon on Linux. The app's settings are kept separately from VisUAL2's.
 
