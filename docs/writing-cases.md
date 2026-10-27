@@ -16,8 +16,9 @@ Contents:
 8. [What is checked automatically](#8-what-is-checked-automatically)
 9. [Verifying cases with the checker](#9-verifying-cases-with-the-checker)
 10. [Organising and distributing](#10-organising-and-distributing)
-11. [Worked example: leftString](#11-worked-example-leftstring)
-12. [Pitfalls and FAQ](#12-pitfalls-and-faq)
+11. [Grading submissions from Canvas](#11-grading-submissions-from-canvas)
+12. [Worked example: leftString](#12-worked-example-leftstring)
+13. [Pitfalls and FAQ](#13-pitfalls-and-faq)
 
 ---
 
@@ -312,15 +313,44 @@ npm run check-cases -- "Homework/VisUAL3"
   VisUAL3/HW2/HW2_4a.s   VisUAL3/HW2/HW2_4a.ccall
   VisUAL3/HW2/HW2_4b.s   VisUAL3/HW2/HW2_4b.ccall
   ...
-  VisUAL3_solutions/HW2/HW2_4a.s   (reference solutions only: never shared)
+  VisUAL3_solutions/HW2/HW2_4a.s   VisUAL3_solutions/HW2/HW2_4a.ccall   (never shared)
   ```
 
-- **Keep solutions in a separate folder** that mirrors the cases folder. The checker pairs them by path, and handing out the cases folder can't leak a solution.
+- **Keep solutions in a separate folder** that mirrors the cases folder. The checker pairs them by path, and handing out the cases folder can't leak a solution. A copy of each `.ccall` beside its solution makes the cases load when you open the solution; copy them again whenever the cases change.
 - **Each starter's header** quotes the question's C prototype and comment, so the file stands alone.
 - **Students can add their own cases** with **Save as**; they are saved into their copy of the `.ccall`.
 - **Updating cases:** students who already saved their file keep their own `.ccall`, so new cases need a new copy of the `.ccall`.
 
-## 11. Worked example: leftString
+## 11. Grading submissions from Canvas
+
+`npm run grade-cases` grades every student's code with the same cases and the same checks as the panel, from Canvas's bulk download:
+
+```sh
+npm run grade-cases -- <submissions.zip> <cases-folder> [--points points.json] [--out folder]
+                       [--gradebook export.csv --column "Homework 4"]
+```
+
+1. In the Canvas assignment, choose **Download Submissions**. Give the grader the `submissions.zip` you get, or the folder you unzip it into.
+2. Give it the assignment's cases folder, such as `Homework/VisUAL3/HW4`. Each `HWn_qx.ccall` there is a question; the `@ C:` prototypes come from the starter `HWn_qx.s` beside it, so it doesn't matter if a student edited or deleted theirs.
+3. To fill the gradebook, export it from Canvas (**Grades → Export**) and pass the export with `--gradebook`. Pass part of the assignment column's name with `--column`.
+
+**Finding each student's files.** Canvas names each submitted file `<name>[_LATE]_<user id>_<submission id>_<file>`, so files are grouped by the user id. A student may submit a zip, zips inside a zip, or loose `.s` files. A file counts for question `HW4_2c` when its name is `HW4_2c.s`, ignoring folders, letter case and Canvas's copy numbers (`HW4_2c-1.s`, `HW4_2c (1).s`). Zips are read in memory and nothing is extracted, and Mac `__MACOSX` entries are skipped. Files saved by Notepad as UTF-16, or with CR LF line ends, are read correctly. Other archives (`.rar`, `.7z`) can't be read and are reported as such.
+
+**Credit.** A question is worth its points × the fraction of its cases that pass. A case passes only when every check passes and no calling-convention problem is reported, the same rule as the checker. A function that never returns fails each case after a million instructions. Questions are worth 10 points unless `--points` gives a JSON file such as `{"HW4_2d": 30, "HW4_2e": 20}`, or `--default-points` changes the default.
+
+**Results**, in `--out` (default `grades`):
+
+| File | Contents |
+|---|---|
+| `grades.csv` | A row per student: name, Canvas user id, late or not, points per question (blank when the file wasn't found) and the total. |
+| `feedback/<name>_<id>.txt` | Every case's ✔ or ✘ with the expected and actual values, which file was graded, questions with no file, and files that were ignored or couldn't be read. Paste it as a submission comment. |
+| `canvas-import.csv` | With `--gradebook`: the export's student columns and the chosen assignment column, filled in. Import it with **Grades → Import**. The total is scaled to the column's points possible, and students with no submission keep their current grade. |
+
+The grader doesn't apply late penalties: `grades.csv` marks late submissions so that you can.
+
+**Before trusting the grades,** run the grader on a small folder of known submissions: the reference solution should get full marks and the starter none. Read a few feedback files. If a student's file is missing because it was named differently, rename it in the download and run the grader again.
+
+## 12. Worked example: leftString
 
 HW4 question 2c: *`void leftString(char * strOut, const char * strIn, uint32_t length)` copies up to, but not exceeding, `length` characters from the start of `strIn`. `strIn = 'abcdef', length = 5` → `'abcde'`; `length = 7` → `'abcdef'`.*
 
@@ -368,7 +398,7 @@ The last case exists because of mutation testing: a version that copies `length`
 - Removing the final `strb` of the 0 byte fails every case, e.g. `expected "abcde", got "abcdeX"`.
 - Not stopping at the end of `strIn` fails `stops at the end of strIn` with `got {97, 98, 99, 100, 101, 102, 0, 90}`.
 
-## 12. Pitfalls and FAQ
+## 13. Pitfalls and FAQ
 
 **A case passes in the panel but the checker says FAIL.**
 The checker also fails a case for calling-convention problems, which the panel lists below the checks without turning them into ✘. Look for the ⚠ part of the line.

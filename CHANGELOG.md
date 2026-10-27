@@ -86,7 +86,7 @@ New in VisUAL3. Write a C prototype in an `@ C:` comment, such as `@ C: extern i
 - Each function can keep named sets of arguments and expectations, chosen in the **Case** row.
 - They are saved with the source as `prog.ccall` beside `prog.s`, in readable JSON, and loaded when `prog.s` is opened.
 - **Help → Load floating-point example** opens five VFP functions with ready-made cases and expected results.
-- **For instructors:** [docs/writing-cases.md](docs/writing-cases.md) explains how to write cases for exercises, and `npm run check-cases -- <cases> [solutions]` runs every case in a folder against reference solutions, with the panel's checks, from the command line.
+- **For instructors:** [docs/writing-cases.md](docs/writing-cases.md) explains how to write cases for exercises, and `npm run check-cases -- <cases> [solutions]` runs every case in a folder against reference solutions, with the panel's checks, from the command line. `npm run grade-cases -- <submissions.zip> <cases>` grades a Canvas bulk download with the same cases: credit by the fraction of cases passed, a feedback file per student, and a gradebook file for Canvas's import.
 
 ## User interface
 
