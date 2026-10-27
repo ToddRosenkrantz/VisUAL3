@@ -40,18 +40,22 @@ const findCases = (dir) =>
         return e.isDirectory() ? findCases(p) : e.name.endsWith(".ccall") ? [p] : [];
     }).sort();
 
-/** The text CCall.parseArgText takes for a saved argument, as CCallView.argOf builds it
- *  (src/Renderer/CCallView.fs): keep the two in step. */
-const argText = (a) => {
+/** The text CCall.parseArgText takes for a saved argument of a parameter of type t, as
+ *  CCallView.argOf builds it (src/Renderer/CCallView.fs): keep the two in step. The panel saves
+ *  every argument as {kind, text}; the kind matters only for pointers. */
+const CPtr = 2, CIntT = 1, CBool = 4; // CCall.CType and CInt case tags
+const argText = (a, t) => {
     if (a === undefined || a === null) return "";
-    if (typeof a !== "object") return String(a);
-    const t = String(a.text ?? "");
+    const text = typeof a === "object" ? String(a.text ?? "") : String(a);
+    if (t.tag !== CPtr) // a number: _Bool is 1 when given as 1, otherwise 0
+        return t.tag === CIntT && t.fields[0].tag === CBool ? (text.trim() === "1" ? "1" : "0") : text.trim();
+    if (typeof a !== "object") return text;
     switch (a.kind) {
-        case "string": return t.trim().startsWith('"') ? t : '"' + t.replace(/"/g, '\\"') + '"';
-        case "output": return "[" + t.trim() + "]";
-        case "address": return t.trim();
+        case "string": return text.trim().startsWith('"') ? text : '"' + text.replace(/"/g, '\\"') + '"';
+        case "output": return "[" + text.trim() + "]";
+        case "address": return text.trim();
         default: { // array: braces are optional in the panel
-            const s = t.trim();
+            const s = text.trim();
             return s.startsWith("{") || /\]\s*$/.test(s) ? s : "{" + s + "}";
         }
     }
@@ -85,7 +89,7 @@ for (const ccPath of files) {
         for (const c of fc.cases ?? []) {
             const name = c.name ?? "(unnamed)";
             if (!proto) { say(fn, name, `FAIL no @ C: prototype for ${fn} in ${path.basename(sPath)}`); failed++; continue; }
-            const args = toArray(proto.Params).map((p) => parseArgText(p.PType, argText((c.args ?? {})[p.PName])));
+            const args = toArray(proto.Params).map((p) => parseArgText(p.PType, argText((c.args ?? {})[p.PName], p.PType)));
             const bad = args.filter((a) => a.tag !== 0).map((a) => a.fields[0]);
             if (bad.length) { say(fn, name, "FAIL argument: " + bad.join("; ")); failed++; continue; }
             const r = callFunction(lim, lines, proto, ofArray(args.map((a) => a.fields[0])), 1000000n);
