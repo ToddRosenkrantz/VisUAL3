@@ -291,6 +291,7 @@ let currentFileTabProgramIsChanged (pInfo : RunInfo) =
 /// Return LoadImage on parse success or None.
 let tryParseAndIndentCode tId =
     let lim = imageOfTId tId
+    Editors.setLineAddrs tId lim.LineAddr
     let editorASM = lim.EditorText
     // See if any errors exist, if they do display them
     match lim with
@@ -463,11 +464,30 @@ let runEditorTab breakCondition steps =
 
 
 
-/// Step simulation forward by 1
+/// Load the program in the current tab and pause before its first instruction, so that its
+/// memory, symbols and registers can be seen before anything runs
+let loadEditorTab() =
+    if currentFileTabId = -1 then
+        showVexAlert "No file tab in editor to run!"
+    else
+        prepareModeForExecution()
+        let tId = currentFileTabId
+        removeEditorDecorations tId
+        match tryParseAndIndentCode tId with
+        | Some(lim, _) ->
+            disableEditors()
+            let ri = lim |> getRunInfoFromImage NoBreak
+            setCurrentModeActiveFromInfo RunState.Paused ri
+            showInfoFromCurrentMode()
+            highlightCurrentAndNextIns "editor-line-highlight" ri tId
+        | _ -> ()
+
+/// Step simulation forward by 1. From reset, the first step only loads the program.
 let stepCode() =
-    match currentTabIsTB() with
-    | false -> runEditorTab NoBreak 1L
-    | true -> showVexAlert "Current file is a testbench: switch to an assembly tab"
+    match currentTabIsTB(), runMode with
+    | true, _ -> showVexAlert "Current file is a testbench: switch to an assembly tab"
+    | false, (ResetMode | ParseErrorMode) -> loadEditorTab()
+    | false, _ -> runEditorTab NoBreak 1L
 
 /// Step simulation back by numSteps
 let stepCodeBackBy numSteps =
@@ -486,10 +506,13 @@ let stepCodeBackBy numSteps =
                 | _ -> ri.StepsDone - numSteps
             setCurrentModeActiveFromInfo RunState.Running ri
 
-            if target <= 0L then
+            if target < 0L then
                 resetEmulator()
                 removeEditorDecorations currentFileTabId
                 showInfoFromCurrentMode()
+            elif target = 0L then // back to the program as loaded, before its first instruction
+                resetEmulator()
+                loadEditorTab()
             else
                 printfn "Stepping back to step %d" target
                 setCurrentModeActiveFromInfo RunState.Paused ri

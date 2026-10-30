@@ -22,7 +22,17 @@ open Tooltips
 open CommonData
 open Memory
 
-let editorOptions (readOnly : bool) =
+/// Monaco's line-number column for tab tId: line numbers, or with View > Show Addresses each
+/// line's address (blank on lines with none, such as comments)
+let lineNumberOption (tId : int) : obj =
+    if Refs.vSettings.EditorShowAddresses = "on" then
+        box (fun (line : int) ->
+            match Refs.lineAddrs.TryFind tId |> Option.bind (Map.tryFind line) with
+            | Some addr -> sprintf "0x%X" addr
+            | None -> "")
+    else box "on"
+
+let editorOptions (tId : int) (readOnly : bool) =
     let vs = Refs.vSettings
     createObj [
 
@@ -41,15 +51,38 @@ let editorOptions (readOnly : bool) =
                         "roundedSelection" ==> false;
                         "scrollBeyondLastLine" ==> false;
                         "readOnly" ==> readOnly;
+                        "readOnlyMessage" ==> createObj [ "value" ==> "Can't edit while the program is running: press Reset first." ]
                         "automaticLayout" ==> true;
                         "minimap" ==> createObj [ "enabled" ==> false ];
                         "glyphMargin" ==> true
+                        "lineNumbers" ==> lineNumberOption tId
+                        "lineNumbersMinChars" ==> (if vs.EditorShowAddresses = "on" then 7 else 5)
               ]
 
 
+/// Redraw tab tId's line-number column (numbers or addresses)
+let refreshLineNumbers (tId : int) =
+    match Refs.editors.TryFind tId with
+    | Some editor ->
+        editor?updateOptions (createObj [
+            "lineNumbers" ==> lineNumberOption tId
+            "lineNumbersMinChars" ==> (if Refs.vSettings.EditorShowAddresses = "on" then 7 else 5) ]) |> ignore
+    | None -> ()
+
+/// Remember the address of each line of tab tId's code, from a successful or quiet load
+let setLineAddrs (tId : int) (addrs : Map<int, uint32>) =
+    Refs.lineAddrs <- Map.add tId addrs Refs.lineAddrs
+    if Refs.vSettings.EditorShowAddresses = "on" then refreshLineNumbers tId
+
+/// Load tab tId's code without showing errors, just to find each line's address
+let loadLineAddrs (tId : int) =
+    if Refs.editors.ContainsKey tId then
+        try setLineAddrs tId (ExecutionTop.reLoadProgram (Refs.textOfTId tId)).LineAddr
+        with _ -> () // keep the last addresses
+
 let updateEditor tId readOnly =
     if tId <> -1 then
-        let eo = editorOptions readOnly
+        let eo = editorOptions tId readOnly
         Refs.editors.[tId]?updateOptions (eo) |> ignore
 
 let setTheme theme =

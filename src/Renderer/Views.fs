@@ -241,10 +241,13 @@ let updateMemoryIfChanged =
                 | true -> lstToBytes
                 | false -> List.map (fun (addr, dat) -> (addr, ("", dat)))
 
-            // Add each row to the table from lst
+            // Add each row to the table from lst. A reversed block runs from high addresses to
+            // low, so its bytes are expanded in increasing order and then reversed too.
             let rows =
                 lst
+                |> (if reverseView then List.rev else id)
                 |> byteSwitcher
+                |> (if reverseView then List.rev else id)
                 |> List.map makeRow
 
             addToDOM table <| [ tr ] @ rows

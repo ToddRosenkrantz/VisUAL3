@@ -1396,6 +1396,17 @@ let alignTests : (string * (unit -> string list)) list = [
         | Error e -> [ e ]
 ]
 
+/// the editor's address column: LoadImage.LineAddr, keyed by source line (from 1)
+let loadTests : (string * (unit -> string list)) list = [
+    "line addresses: instructions, data, labels, comments", fun () ->
+        let lim = reLoadProgram (srcLines "@ comment\nmov r0, #1\nstart:\nadd r0, r0, #1\n.data\nd: .word 1\n.word 2, 3\n.byte 4\n.equ n, 5")
+        let d = lim.SymInf.SymTab.["d"]
+        expectEq "line addresses" (Map.toList lim.LineAddr) [ 2, 0u; 3, 4u; 4, 4u; 6, d; 7, d + 4u; 8, d + 12u ]
+    "line addresses: a program with no instructions gives no address to line 1", fun () ->
+        let lim = reLoadProgram (srcLines "@ just a comment")
+        expectEq "line addresses" (Map.toList lim.LineAddr) []
+]
+
 // ///////////////////////////// floating point core ////////////////////////////
 
 open FpMath
@@ -2093,12 +2104,12 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    for (name, test) in fpTests @ alignTests @ cTests do
+    for (name, test) in fpTests @ alignTests @ loadTests @ cTests do
         match (try test () with e -> [ "exception: " + e.Message ]) with
         | [] -> printfn "pass %s" name
         | errs ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name (String.concat "; " errs)
-    let total = allTests.Length + fpTests.Length + alignTests.Length + cTests.Length
+    let total = allTests.Length + fpTests.Length + alignTests.Length + loadTests.Length + cTests.Length
     printfn "%d/%d passed" (total - failed) total
     if failed = 0 then 0 else 1

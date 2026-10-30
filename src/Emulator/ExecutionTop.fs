@@ -103,6 +103,8 @@ type LoadImage = {
     Indent : int
     Source : string list
     EditorText : string list
+    /// the address of each source line (numbered from 1) that has one: instructions, data and labels
+    LineAddr : Map<int, uint32>
     }
 
 type StackI = { Target : uint32; SP : uint32; RetAddr : uint32 }
@@ -204,6 +206,7 @@ let initLoadImage dStart symTab =
         Indent = 7
         Source = [ "" ]
         EditorText = []
+        LineAddr = Map.empty
     }
 
 let makeLocI (pa : Parse<Instr>) =
@@ -339,14 +342,23 @@ let loadLine (lim : LoadImage) (st : GnuLex.Stmt) =
                 | _ -> lim.Indent
             Source = [ "" ]
             EditorText = []
+            LineAddr =
+                let withLabel =
+                    match pa.PLabel with
+                    | Some(_, Ok addr) when labType <> CalculatedSymbol -> Map.add st.LabelLine addr lim.LineAddr
+                    | _ -> lim.LineAddr
+                match pa.ISize, pa.DSize with
+                | i, _ when i > 0u -> Map.add lineNum lp.PosI withLabel
+                | _, Some d when d > 0u -> Map.add lineNum posD withLabel
+                | _ -> withLabel
         }
 
 let addTermination (lim : LoadImage) =
     let insLst = Map.toList lim.Code |> List.sortByDescending fst
     match insLst with
     | (_, ({ Cond = Cal; InsExec = IBRANCH END; InsOpCode = "END" }, _)) :: _ -> lim
-    | [] -> loadLine lim (GnuLex.makeStmt 1 None "END" "")
-    | _ -> loadLine lim (GnuLex.makeStmt -1 None "END" "") // used if no line for END
+    | [] -> { loadLine lim (GnuLex.makeStmt 1 None "END" "") with LineAddr = lim.LineAddr } // END is on no source line
+    | _ -> { loadLine lim (GnuLex.makeStmt -1 None "END" "") with LineAddr = lim.LineAddr } // used if no line for END
 
 /// loadProgram creates a new loadImage from the symbol table in the 
 /// old loadImage and the pogram text in lines.

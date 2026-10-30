@@ -221,7 +221,9 @@ let editMenu() =
         menuSeparator
         makeRoleItem "Cut" (Some "CmdOrCtrl+X") MenuItemRole.Cut
         makeRoleItem "Copy" (Some "CmdOrCtrl+C") MenuItemRole.Copy
-        makeRoleItem "Paste" (Some "CmdOrCtrl+V") MenuItemRole.Paste
+        makeItem "Paste" (Some "CmdOrCtrl+V") (fun () ->
+            let inEditor = editors.TryFind currentFileTabId |> Option.exists (fun e -> e?hasTextFocus () : bool)
+            Refs.pasteHandler inEditor)
         menuSeparator
         makeItem "Select All" (Some "CmdOrCtrl+A") Files.editorSelectAll
         menuSeparator
@@ -233,9 +235,24 @@ let editMenu() =
         makeItem "Preferences" Core.Option.None (interlockAction "show preferences tab" createSettingsTab)
     ]
 
+/// View > Show Addresses: the editor shows each line's address instead of its number
+let showAddressesItem() =
+    let toggle () =
+        vSettings <- { vSettings with EditorShowAddresses = (if vSettings.EditorShowAddresses = "on" then "off" else "on") }
+        setJSONSettings()
+        for tId in fileTabList do
+            if vSettings.EditorShowAddresses = "on" then Editors.loadLineAddrs tId
+            Editors.refreshLineNumbers tId
+    let item = makeItem "Show Addresses" Core.Option.None toggle
+    item?``type`` <- "checkbox"
+    item?``checked`` <- (vSettings.EditorShowAddresses = "on")
+    item
+
 let viewMenu() =
         let devToolsKey = if platform = "darwin" then "Alt+Command+I" else "Ctrl+Shift+I"
         makeMenu "View" [
+            showAddressesItem()
+            menuSeparator
             makeRoleItem "Toggle Fullscreen" (Some "F11") MenuItemRole.Togglefullscreen
             menuSeparator
             makeRoleItem "Zoom In" (Some "CmdOrCtrl+Plus") MenuItemRole.Zoomin
@@ -334,7 +351,21 @@ let helpMenu() =
             ])
 
 
+/// Paste, unless the editor is read-only because a program is running or paused:
+/// then offer to reset first, as Save does
+let pasteOrExplain (inEditor : bool) =
+    let paste () = currentWebContents()?paste () |> ignore
+    match editors.TryFind currentFileTabId with
+    | Some editor when inEditor && (editor?getOption (window?monaco?editor?EditorOption?readOnly) : bool) ->
+        showVexConfirm "Can't paste while simulator is running <br> <br>Reset and paste<br>" (fun ok ->
+            if ok then
+                Integration.resetEmulator ()
+                editor?focus () |> ignore
+                window.setTimeout ((fun () -> paste ()), 50) |> ignore)
+    | _ -> paste ()
+
 /// Make all app menus
 let mainMenu() =
+    Refs.pasteHandler <- pasteOrExplain
     let template = [| fileMenu(); editMenu(); viewMenu(); helpMenu(); testMenu() |]
     remote?Menu?setApplicationMenu (remote?Menu?buildFromTemplate (template)) |> ignore

@@ -84,6 +84,9 @@
   <li>The program ends when execution runs past the last instruction, or when it returns with <code>bx lr</code>, <code>mov pc, lr</code> or <code>pop {…, pc}</code>: LR starts at a return address that stops the run.</li>
   <li>SP starts at <code>0xFF000000</code>. The stack is full-descending: <code>push</code> stores below SP.</li>
   <li>Data in <code>.data</code>, <code>.rodata</code> and <code>.bss</code> is placed after the code. Uninitialised memory reads as zero.</li>
+  <li>The first <b>Step</b> loads the program and stops before its first instruction, so memory, symbols and registers can be looked at before anything runs. Each further Step runs one instruction; <b>Run</b> runs to the end.</li>
+  <li><b>View → Show Addresses</b> shows each line's address in place of its line number: the address of an instruction, of a line's data, or of a label.</li>
+  <li>The program can't be edited while it is running or stopped part-way; press <b>Reset</b> first. Pasting offers to reset for you.</li>
 </ul>
 
 <h2 id="statements">Labels and comments</h2>

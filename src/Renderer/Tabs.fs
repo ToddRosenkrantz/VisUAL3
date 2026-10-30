@@ -264,8 +264,7 @@ let mutable private pasteFixed = false
 let fixPaste() =
     if not pasteFixed then
         pasteFixed <- true
-        window?monaco?editor?registerCommand ("editor.action.clipboardPasteAction", fun () ->
-            Interop.currentWebContents()?paste () |> ignore) |> ignore
+        window?monaco?editor?registerCommand ("editor.action.clipboardPasteAction", fun () -> Refs.pasteHandler true) |> ignore
 
 let createNamedFileTab fName fPath =
     match findNamedFile fPath with
@@ -277,10 +276,15 @@ let createNamedFileTab fName fPath =
     | Option.None ->
         let id = createTab fName
         let addEditor (fv) =
-            let editor = window?monaco?editor?create (fv, Editors.editorOptions false)
+            let editor = window?monaco?editor?create (fv, Editors.editorOptions id false)
                     // Whenever the content of this editor changes
+            let addrTimer = ref None
             editor?onDidChangeModelContent (fun _ ->
                 setTabUnsaved id // Set the unsaved icon in the tab
+                // with View > Show Addresses, find the new addresses once typing pauses
+                if Refs.vSettings.EditorShowAddresses = "on" then
+                    addrTimer.Value |> Option.iter (fun (t : float) -> window.clearTimeout t)
+                    addrTimer.Value <- Some(window.setTimeout ((fun () -> Editors.loadLineAddrs id), 400))
                 ) |> ignore
             fixPaste()
             Refs.editors <- Map.add id editor Refs.editors

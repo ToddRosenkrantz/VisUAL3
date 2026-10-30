@@ -52,6 +52,8 @@ type VSettings = {
     EditorWordWrap : string
     EditorRenderWhitespace : string
     SimulatorStrictAlignment : string
+    /// "on": the editor shows each line's address instead of its number (View > Show Addresses)
+    EditorShowAddresses : string
     CurrentFilePath : string
     RegisteredKey : string
     OnlineFetchText : string
@@ -378,6 +380,7 @@ let mutable vSettings = {
     EditorWordWrap = "off"
     EditorRenderWhitespace = "none"
     SimulatorStrictAlignment = "off"
+    EditorShowAddresses = "off"
     CurrentFilePath = os.homedir()
     RegisteredKey = ""
     OnlineFetchText = ""
@@ -425,6 +428,7 @@ let checkSettings (vs : VSettings) =
                 checkNum vs.EditorFontSize minFontSize maxFontSize vso.EditorFontSize
             // settings saved before this option existed lack it
             SimulatorStrictAlignment = if vs.SimulatorStrictAlignment = "on" then "on" else "off"
+            EditorShowAddresses = if vs.EditorShowAddresses = "on" then "on" else "off"
             CurrentFilePath = checkPath vs.CurrentFilePath
         }
     with
@@ -563,6 +567,11 @@ let mutable fileTabList : int list = []
 let mutable testbenchTab : int option = None
 /// Map tabIds to the editors which are contained in them
 let mutable editors : Map<int, obj> = Map.ofList []
+/// The address of each source line (from 1), by tab, from the last time the tab's code loaded
+let mutable lineAddrs : Map<int, Map<int, uint32>> = Map.empty
+/// Paste, as Edit > Paste does; the argument is true when an editor is pasted into.
+/// MenuBar replaces it with a version that explains why a running program can't be edited.
+let mutable pasteHandler : bool -> unit = fun _ -> currentWebContents()?paste () |> ignore
 /// Map of content widgets currently on editor, indexed by id
 let mutable currentTabWidgets : Map<string, obj> = Map.empty
 /// id of tab containing settings form, if this exists

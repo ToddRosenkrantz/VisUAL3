@@ -56,6 +56,7 @@ let getFormSettings() =
             EditorWordWrap = getS editorWordWrap
             EditorRenderWhitespace = getS editorRenderWhitespace
             SimulatorStrictAlignment = getS simulatorStrictAlignment
+            EditorShowAddresses = vSettings.EditorShowAddresses
             CurrentFilePath = vSettings.CurrentFilePath
             RegisteredKey = vSettings.RegisteredKey
             OnlineFetchText = vSettings.OnlineFetchText

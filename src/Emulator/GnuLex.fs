@@ -23,12 +23,14 @@ type Section =
 type Stmt = {
     LineNum : int
     Label : string option
+    /// the line the label is on, when it stands alone on an earlier line than the statement
+    LabelLine : int
     Op : string
     Operands : string
     LexError : string option
 }
 
-let makeStmt lineNum label op operands = { LineNum = lineNum; Label = label; Op = op; Operands = operands; LexError = None }
+let makeStmt lineNum label op operands = { LineNum = lineNum; Label = label; LabelLine = lineNum; Op = op; Operands = operands; LexError = None }
 
 let errorStmt lineNum msg = { makeStmt lineNum None "" "" with LexError = Some msg }
 
@@ -324,10 +326,10 @@ let lexProgram (lines : string list) : Stmt list =
         match List.rev pending with
         | [] -> stream.Add st
         | labs ->
-            let extra, (_, last) = List.take (labs.Length - 1) labs, List.last labs
+            let extra, (lastLine, last) = List.take (labs.Length - 1) labs, List.last labs
             for (line, lab) in extra do
                 stream.Add(if isData then makeStmt line (Some lab) ".SPACE" "0" else makeStmt line (Some lab) "" "")
-            stream.Add { st with Label = Some last }
+            stream.Add { st with Label = Some last; LabelLine = lastLine }
         pending <- []
     let addCode (st : Stmt) =
         match pendingAlign with
