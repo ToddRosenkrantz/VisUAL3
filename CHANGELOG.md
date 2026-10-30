@@ -1,6 +1,6 @@
 # Changes from VisUAL2 to VisUAL3
 
-VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019). This document lists the significant ways VisUAL3 differs from it. It brings together everything from the development builds 3.0.0-dev to 3.0.0-dev.9.0.2 (October 2026), and will be the change list for the 3.0.0 release. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases).
+VisUAL3 is a fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2) 1.06.10 (commit `6a36478`, December 2019). This document lists the significant ways VisUAL3 differs from it. It brings together everything from the development builds 3.0.0-dev to 3.0.0-dev.9.0.3 (October 2026), and will be the change list for the 3.0.0 release. Builds are on the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases).
 
 In short:
 

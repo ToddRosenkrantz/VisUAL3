@@ -1,7 +1,7 @@
 {
   "name": "visual3",
   "productName": "VisUAL3",
-  "version": "3.0.0-dev.9.0.2",
+  "version": "3.0.0-dev.9.0.3",
   "description": "ARMv7 (GNU as syntax) assembly emulator for teaching",
   "license": "GPL-3.0-only",
   "author": "Todd Rosenkrantz",
