@@ -98,6 +98,7 @@ New in VisUAL3. Write a C prototype in an `@ C:` comment, such as `@ C: extern i
 - **Help → License (GNU GPL v3)** shows the licence; **Help → About** gives the credits.
 - The first **Step** loads the program and pauses before its first instruction, with memory, symbols and registers shown; stepping back to the start returns there.
 - **View → Show Addresses** shows each line's address (instruction, data or label) in place of its line number.
+- Pasting into a program that is running or paused offers **Reset and paste**, as Save does; typing there shows a read-only note.
 - When two open files have the same name, such as a solution and a starter, their tabs show as much of each folder as tells them apart (`HW4_2c.s — VisUAL3/HW4`, `HW4_2c.s — VisUAL3_solutions/HW4`). A tab's tooltip is its file's full path.
 - Fixed: the Memory tab's **Reverse Direction** listed each word's bytes in increasing order in Byte View, so the addresses did not run in sequence.
 - Fixed: the layout at small window sizes, the register display at startup and after reset, tooltips, the editor cursor drifting away from the text, and the Preferences checkboxes showing fixed defaults instead of the saved settings.
