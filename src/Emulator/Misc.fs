@@ -224,7 +224,7 @@ module Misc
         | "FILL", _ -> makeDataDirective None <| makeInstructionError ("Invalid operands for FILL: unresolved symbols")
         | "ADR", RegMatch(Ok rn) :: [ PARSE(Ok addr) ] ->
             match checkAddrOffset (int addr - int la) with
-            | Ok _ -> { pa with PInstr = ADR { AReg = rn; AVal = addr } |> Ok; PStall = (if rn = R15 then 2 else 0) }
+            | Ok _ -> { pa with PInstr = ADR { AReg = rn; AVal = addr } |> Ok; PStall = 0 }
             | Error e -> { pa with PInstr = Error e }
         | "ADR", _ops ->
             let msg = "Invalid operands: '" + ls.Operands +

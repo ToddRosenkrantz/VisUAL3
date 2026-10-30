@@ -71,11 +71,14 @@ let evalRegister reg d = Map.find reg d.Regs
 let setFlagN value = value > 0x7FFFFFFFu
 let setFlagZ value = (value = 0u)
 
-let destStall rn = match rn with | R15 -> 2 | _ -> 0
+/// Extra cycles for writing PC: none. In the cycle model every instruction that neither branches
+/// nor touches memory takes 1 cycle (see app/guide.html, Clock cycles).
+let destStall (_ : RName) = 0
 
 let addDestStall rn pRes = Result.map (fun (sOp2, pa) -> destStall rn + sOp2, pa) pRes
 
-let op2Stall = function | RegisterWithRegisterShift _ -> 1 | _ -> 0
+/// Extra cycles for operand 2: none, even for a shift by a register (1 cycle per instruction)
+let op2Stall (_ : Op2) = 0
 
 let getStallFromOk = function | Ok(st, x) -> st, Ok x | Error e -> 0, Error e
 

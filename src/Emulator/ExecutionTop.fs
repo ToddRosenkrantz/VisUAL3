@@ -581,7 +581,12 @@ let asmStep (numSteps : int64) (ri : RunInfo) =
                 lastDP <- Some dp; dp <- dp', uF'; stepsDone <- stepsDone + 1L;
             | Result.Error EXIT -> running <- false; state <- PSExit;
             | Result.Error e -> running <- false; state <- PSError e; lastDP <- Some dp;
-            cyclesDone <- cyclesDone + (match ti with | _, Some { Cycles = cyc } -> cyc + 1L | _, None -> 1L) + Memory.takeUnalignedCycles ()
+            // cycles for an instruction that ran (or was skipped by its condition); none for the
+            // step that finds the program has ended (END or a return from the top level) or faulted
+            let unaligned = Memory.takeUnalignedCycles ()
+            match stepRes with
+            | Result.Ok _ -> cyclesDone <- cyclesDone + (match ti with | _, Some { Cycles = cyc } -> cyc + 1L | _, None -> 1L) + unaligned
+            | Result.Error _ -> ()
             match ti, stepRes, lastDP with
             | (lNum, Some ci), Result.Ok(dp', _), Some(dp, _) ->
                 coverage <- Set.add lNum coverage

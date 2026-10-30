@@ -1396,6 +1396,44 @@ let alignTests : (string * (unit -> string list)) list = [
         | Error e -> [ e ]
 ]
 
+/// The cycle model (app/guide.html, Clock cycles): each case compares two programs that differ by
+/// one instruction, so the rest of the program cancels out.
+let cycleTests : (string * (unit -> string list)) list =
+    let data = "\n.data\nd: .word 1, 2, 3, 4, 5, 6"
+    let costs what (withIns : string) (without : string) (expected : int64) =
+        what, fun () -> expectEq what (cycles (withIns + data) - cycles (without + data)) expected
+    [
+        costs "add: 1" "mov r0, #1\nadd r0, r0, #1" "mov r0, #1" 1L
+        costs "add with a shift by a register: 1" "mov r1, #2\nadd r0, r0, r0, lsl r1" "mov r1, #2" 1L
+        costs "writing PC with add: 1" "add pc, pc, #-4\nmov r0, #0" "mov r0, #0" 1L
+        costs "mul: 1" "mov r1, #3\nmul r0, r1, r1" "mov r1, #3" 1L
+        costs "sdiv: 1" "mov r1, #3\nsdiv r0, r1, r1" "mov r1, #3" 1L
+        costs "b: 2" "b 1f\n1: mov r0, #0" "mov r0, #0" 2L
+        costs "bl: 2" "bl 1f\n1: mov r0, #0" "mov r0, #0" 2L
+        costs "bx: 2" "adr r1, 1f\nbx r1\n1: mov r0, #0" "adr r1, 1f\n1: mov r0, #0" 2L
+        costs "beq taken: 3" "cmp r0, r0\nbeq 1f\n1: mov r0, #0" "cmp r0, r0\nmov r0, #0" 3L
+        costs "beq not taken: 1" "cmp r0, #1\nbeq 1f\n1: mov r0, #0" "cmp r0, #1\nmov r0, #0" 1L
+        costs "ldr r0, =label: 2" "mov r1, #0\nldr r0, =d" "mov r1, #0" 2L
+        costs "ldr: 2" "ldr r0, =d\nldr r1, [r0]" "ldr r0, =d" 2L
+        costs "ldrb: 2" "ldr r0, =d\nldrb r1, [r0]" "ldr r0, =d" 2L
+        costs "str: 2" "ldr r0, =d\nstr r1, [r0]" "ldr r0, =d" 2L
+        costs "ldrd: 4" "ldr r0, =d\nldrd r2, r3, [r0]" "ldr r0, =d" 4L
+        costs "strd: 4" "ldr r0, =d\nstrd r2, r3, [r0]" "ldr r0, =d" 4L
+        costs "push {r4-r6}: 6" "mov r0, #0\npush {r4-r6}" "mov r0, #0" 6L
+        costs "ldm with 4 registers: 8" "ldr r0, =d\nldm r0, {r1-r4}" "ldr r0, =d" 8L
+        costs "pop {r4, pc}: 4, no branch penalty" "adr r1, 1f\npush {r0, r1}\npop {r4, pc}\n1: mov r0, #0" "adr r1, 1f\npush {r0, r1}\n1: mov r0, #0" 4L
+        costs "unaligned ldr: 3" "ldr r0, =d\nldr r1, [r0, #1]" "ldr r0, =d" 3L
+        costs "vldr s0: 2" "ldr r0, =d\nvldr s0, [r0]" "ldr r0, =d" 2L
+        costs "vldr d0: 4" "ldr r0, =d\nvldr d0, [r0]" "ldr r0, =d" 4L
+        costs "vpush {d8-d9}: 8" "mov r0, #0\nvpush {d8-d9}" "mov r0, #0" 8L
+        costs "vadd: 1" "mov r0, #0\nvadd.f32 s0, s1, s2" "mov r0, #0" 1L
+        "running off the end: only the instructions count", fun () ->
+            expectEq "cycles" (cycles "mov r0, #1\nadd r0, r0, #1") 2L
+        "a counted loop and a return add up by hand", fun () ->
+            // setup 2+1+1, three repeats of 2+1+1+3, the last pass 2+1+1+1, bx lr 2
+            expectEq "cycles" (cycles "ldr r0, =arr\nmov r1, #4\nmov r2, #0\nloop: ldr r3, [r0], #4\nadd r2, r2, r3\nsubs r1, r1, #1\nbne loop\nbx lr\n.data\narr: .word 1, 2, 3, 4") 32L
+    ]
+
 /// the editor's address column: LoadImage.LineAddr, keyed by source line (from 1)
 let loadTests : (string * (unit -> string list)) list = [
     "line addresses: instructions, data, labels, comments", fun () ->
@@ -2104,12 +2142,12 @@ let main _ =
             | errs ->
                 failed <- failed + 1
                 printfn "FAIL %s: %s" name (String.concat "; " errs)
-    for (name, test) in fpTests @ alignTests @ loadTests @ cTests do
+    for (name, test) in fpTests @ alignTests @ cycleTests @ loadTests @ cTests do
         match (try test () with e -> [ "exception: " + e.Message ]) with
         | [] -> printfn "pass %s" name
         | errs ->
             failed <- failed + 1
             printfn "FAIL %s: %s" name (String.concat "; " errs)
-    let total = allTests.Length + fpTests.Length + alignTests.Length + loadTests.Length + cTests.Length
+    let total = allTests.Length + fpTests.Length + alignTests.Length + cycleTests.Length + loadTests.Length + cTests.Length
     printfn "%d/%d passed" (total - failed) total
     if failed = 0 then 0 else 1

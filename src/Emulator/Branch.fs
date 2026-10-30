@@ -60,7 +60,9 @@ module Branch
             | _ -> failwithf "What? Unexpected root in Branch.parse'%s'" root
             |> fun ins ->
                 copyParse ls ins cond
-                |> (fun pa -> { pa with PStall = match root with | "B" | "BL" | "BX" -> 2 | _ -> 0 })
+                // a taken branch: 2 cycles if unconditional (the target is known in Decode), 3 if conditional
+                // (decided in Execute); a branch not taken costs 1, like any skipped instruction
+                |> (fun pa -> { pa with PStall = match root with | "B" | "BL" | "BX" -> (if cond = Cal then 1 else 2) | _ -> 0 })
         let OPC = ls.OpCode.ToUpper()
         if Map.containsKey OPC opCodes // lookup opcode to see if it is known
         then parse' opCodes.[OPC] |> Some

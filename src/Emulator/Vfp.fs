@@ -574,6 +574,8 @@ let parse (ls : LineData) : Parse<Instr> option =
         let dts = parts |> Array.skip 1 |> List.ofArray
         let ops = splitOperands ls.Operands |> List.filter (fun o -> o <> "")
         let res = parseInstr ls root suffix dts ops |> Result.map (fun (run, access) -> { Run = run; Access = access })
-        copyParse ls res cond)
+        // loads and stores take 2 cycles for each word moved (a d register is 2 words); the rest take 1
+        let stall = match res with | Ok { Access = Some a } -> 2 * int (wordCount a.Regs) - 1 | _ -> 0
+        { copyParse ls res cond with PStall = stall })
 
 let (|IMatch|_|) = parse

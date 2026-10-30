@@ -89,6 +89,18 @@
   <li>The program can't be edited while it is running or stopped part-way; press <b>Reset</b> first. Pasting offers to reset for you.</li>
 </ul>
 
+<h3 id="cycles">Clock cycles</h3>
+<p>The cycle count beside the Run button follows a simple model of a three-stage fetch, decode and execute pipeline, so that a program's cycles can be worked out by hand:</p>
+<table>
+  <tr><th>Instructions</th><th>Cycles</th></tr>
+  <tr><td>Anything that neither branches nor loads or stores: data processing (including shifts by a register and writing <code>pc</code>), multiply, divide, extends and bit operations</td><td>1</td></tr>
+  <tr><td><code>b</code>, <code>bl</code>, <code>bx</code> with no condition</td><td>2</td></tr>
+  <tr><td><code>b</code>, <code>bl</code>, <code>bx</code> with a condition</td><td>3 when taken, 1 when not taken</td></tr>
+  <tr><td>Loads and stores, including <code>ldm</code>, <code>stm</code>, <code>push</code>, <code>pop</code>, <code>ldr r0, =label</code> and the VFP loads and stores</td><td>2 for each word (1 to 4 bytes) moved, plus 1 for each unaligned access</td></tr>
+  <tr><td>Other VFP instructions</td><td>1</td></tr>
+</table>
+<p>An unconditional branch's target is known when it is decoded, so only the one instruction fetched after it is thrown away. A conditional branch is decided when it executes, by which time two instructions behind it have been fetched. So <code>ldrd</code> costs 4, <code>push {r4-r6, lr}</code> costs 8, and a loop that ends with <code>bne</code> pays 3 for each repeat and 1 when it finally falls through. (Treating <code>bx</code> like <code>b</code> is a simplification: on real hardware its target is in a register.)</p>
+
 <h2 id="statements">Labels and comments</h2>
 <ul>
   <li>A label ends with a colon: <code>loop:</code>. It may share a line with an instruction, stand on its own line, or several labels may mark the same place. Names use letters, digits, <code>_</code>, <code>.</code> and <code>$</code>, and cannot start with a digit. Labels are case-sensitive.</li>
@@ -409,7 +421,7 @@
 
 <h2 id="limits">Not supported</h2>
 <ul>
-  <li>NEON (Advanced SIMD) vector instructions: floating point is scalar VFP only. VFP instructions take one cycle each in the cycle count.</li>
+  <li>NEON (Advanced SIMD) vector instructions: floating point is scalar VFP only. VFP instructions take one cycle each in the cycle count, except loads and stores, which take two per word (see <a href="#cycles">Clock cycles</a>).</li>
   <li>Thumb code, <code>blx</code>, and branching with <code>bx</code> to an odd address.</li>
   <li>System calls (<code>svc</code>): programs end by returning or running off the end.</li>
   <li>Exclusive loads and stores (<code>ldrex</code>, <code>strex</code>), and saturating and SIMD instructions.</li>

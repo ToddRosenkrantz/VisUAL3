@@ -167,7 +167,7 @@ module Memory
                 |> Result.map (fun lv -> LDREQUAL(rd, lv)))
 
             |> (fun ins -> copyParse ls ins pCond)
-            |> (fun pa -> { pa with PStall = 2 })
+            |> (fun pa -> { pa with PStall = 1 }) // a one-word load from the literal pool
 
 
 
@@ -334,7 +334,8 @@ module Memory
                 | _ -> makeParseError "LDR/STR Effective address" txt "list#single-register-memory-transfer-instructions"
             | _ -> makeParseError "LDR/STR register name" ls.Operands "list#single-register-memory-transfer-instructions"
             |> fun ins -> copyParse ls (Result.map memTypeSingleMap.[uRoot] ins) pCond
-            |> (fun pa -> { pa with PStall = match uRoot with | "LDR" -> 2 | "STR" -> 1 | _ -> 0 })
+            // 2 cycles for each word moved: ldrd/strd move two
+            |> (fun pa -> { pa with PStall = if uSuffix = "D" then 3 else 1 })
 
 
         /// parse for LDM, STM (operands: "Rn{!}, {reglist}")
@@ -429,8 +430,8 @@ module Memory
                     makeParseError "valid LDM/STM operands" operands "list#single-register-memory-transfer-instructions"
 
             copyParse ls (Result.map memTypeMultMap.[root] ops) pCond
-            |> (fun pa -> { pa with PStall = let rootStall = match root with | "LDM" -> 1 | _ -> 0
-                                             match ops with | Ok o -> (max 1 o.rList.Length) + rootStall | _ -> 0 })
+            // 2 cycles for each register loaded or stored
+            |> (fun pa -> { pa with PStall = match ops with | Ok o -> 2 * (max 1 o.rList.Length) - 1 | _ -> 0 })
 
         let parse' (_instrC, (root : string, suffix : string, pCond)) =
             let uRoot = root.ToUpper()

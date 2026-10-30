@@ -54,6 +54,7 @@ The core is a Cortex-A7-class ARMv7-A processor running ARM (A32) code.
 
 - A program ends when it returns from the top level with `bx lr`: LR starts at a return address that stops the run. It can also run off the end of its code.
 - SP starts at `0xFF000000`.
+- The cycle count follows a simple three-stage pipeline model that students can work out by hand. Every instruction takes 1 cycle except branches and memory operations. `b`, `bl` and `bx` take 2, or 3 when a conditional branch is taken (1 when it is not). Loads and stores take 2 for each word moved, plus 1 if unaligned. The step that ends a program is no longer counted as a cycle. The built-in guide has the table.
 - Testbenches keep the case of labels, so GNU labels work.
 
 ## C Call panel
