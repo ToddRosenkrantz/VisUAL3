@@ -4,6 +4,31 @@ A desktop emulator for learning ARM assembly. You write ARMv7-A (A32) code for a
 
 VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLondon/Visual2). VisUAL2 used its own armasm-like syntax and a 2019 toolchain; this version uses GNU syntax and current tools (Electron 43, Fable 4, .NET 10).
 
+## Features
+
+- **Write real-world assembly.** VisUAL3 uses GNU assembler syntax, as gcc, clang and Linux do. What students write here assembles with the standard toolchain. Labels, local labels such as `1b`/`1f`, comments and gcc's boilerplate directives all work.
+- **A modern ARM core.** It emulates a Cortex-A7-class ARMv7-A processor, with dozens of new instructions:
+  - hardware divide, 64-bit multiplies and multiply-subtract
+  - bit-field and byte-reverse operations, and sign and zero extends
+  - halfword and doubleword loads and stores
+  - `push`/`pop`, `bx`, and `movw`/`movt`
+- **A full floating-point unit.** It has VFPv4 with 32 double registers, fused multiply-add, square root and every conversion. Results are bit-exact IEEE 754, with all of the FPSCR's rounding modes and exception flags. A dedicated VFP tab and a float view of memory show the values.
+- **Call your assembly from C.** Paste a C prototype into a comment and the new C Call panel calls your function exactly as compiled C would:
+  - arguments go in registers and on the stack, following the ARM calling convention (AAPCS), hard-float included
+  - arrays, strings, buffers, structs and C variables are built in memory for you
+  - it reports every calling-convention slip: registers not preserved, results not extended, writes through `const` pointers
+- **Built-in test cases.** Save named cases with expected results beside each program. Every call then shows a ✔ or ✘ for each check.
+- **Made for the classroom.**
+  - A command-line checker runs a whole folder of cases against reference solutions.
+  - A grader marks a Canvas bulk download and writes a gradebook file ready to import.
+  - A guide shows instructors how to write cases.
+- **See before you step.** The first Step loads the program and stops before the first instruction, so memory, symbols and registers can be discussed before anything runs. View → Show Addresses puts each line's address beside the code.
+- **Cycle counts students can work out by hand.** A simple three-stage pipeline model with a published table: 1 cycle per instruction, extra for branches, and 2 for each word of memory moved.
+- **Realistic memory behaviour.** Unaligned loads and stores work as they do on ARMv7 Linux. A Strict Alignment option makes them fault instead.
+- **Help where you need it.** Hover help, a built-in guide (F1) and worked examples cover the new syntax, floating point and the C Call panel.
+- **Rebuilt on a current platform.** It now runs on Electron 43, Monaco 0.57 and .NET 10, up from 2018–2019 versions. There are native builds for Windows, Linux and macOS (Apple silicon and Intel).
+- **Open source.** It's released under GPL-3.0, with the original author's permission.
+
 ## Running it
 
 Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0-dev.9.0.3](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0-dev.9.0.3)), or [build it](#packaging). Unzip it anywhere and run:
@@ -43,7 +68,7 @@ table:  .word   10, 20, 30, -5
 - **Instructions:** data processing, shifts, `movw`/`movt`, `neg`, `nop`, `mul`/`mla`/`mls`, `sdiv`/`udiv`, the long multiplies `umull`/`smull`/`umlal`/`smlal`, `uxtb`/`uxth`/`sxtb`/`sxth`, the bit-field instructions `ubfx`/`sbfx`/`bfi`/`bfc`, `clz`, `rbit`, `rev`/`rev16`/`revsh`, `ldr`/`str` with `b`, `h` and `d` forms, `ldrsb`/`ldrsh`, `ldm`/`stm`, `push`/`pop`, `b`/`bl`/`bx`, `adr` and `mrs`/`msr`, all with condition codes.
 - **Floating point:** VFPv4 with s0–s31 and d0–d31: loads and stores, `vmov`, arithmetic, multiply-accumulate and fused multiply-add, `vsqrt`, compares with `vmrs`, and conversions, with exact IEEE rounding and FPSCR flags. `.float` and `.double` store values. The **VFP** tab shows the registers.
 - **Running:** execution starts at the first instruction in `.text`. It ends when execution runs past the last instruction, or when the code returns with `bx lr`. SP starts at `0xFF000000`, and LR at a return address that stops the run.
-- **Not supported:** NEON vector instructions, Thumb, `svc`/system calls, `blx`, exclusive loads and stores (`ldrex`/`strex`), `mrs`/`msr`, and macros.
+- **Not supported:** NEON vector instructions, Thumb, `svc`/system calls, `blx`, exclusive loads and stores (`ldrex`/`strex`), and macros.
 
 **Help → Assembly language guide** (F1) in the app is the full reference. Pointing at a line marked as an error shows help for that instruction or directive.
 
