@@ -26,18 +26,18 @@ VisUAL3 is a modernised fork of [VisUAL2](https://github.com/ImperialCollegeLond
 - **Cycle counts students can work out by hand.** A simple three-stage pipeline model with a published table: 1 cycle per instruction, extra for branches, and 2 for each word of memory moved.
 - **Realistic memory behaviour.** Unaligned loads and stores work as they do on ARMv7 Linux. A Strict Alignment option makes them fault instead.
 - **Help where you need it.** Hover help, a built-in guide (F1) and worked examples cover the new syntax, floating point and the C Call panel.
-- **Rebuilt on a current platform.** It now runs on Electron 43, Monaco 0.57 and .NET 10, up from 2018–2019 versions. There are native builds for Windows, Linux and macOS (Apple silicon and Intel).
+- **Rebuilt on a current platform.** It now runs on Electron 43, Monaco 0.57 and .NET 10, up from 2018–2019 versions. There are native builds for Windows, Linux and macOS (Intel, and Apple silicon, not yet tested).
 - **Open source.** It's released under GPL-3.0, with the original author's permission.
 
 ## Running it
 
-Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0-dev.9.0.3](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0-dev.9.0.3)), or [build it](#packaging). Unzip it anywhere and run:
+Download the zip for your platform from the [Releases page](https://github.com/ToddRosenkrantz/VisUAL3/releases) (the current one is [v3.0.0](https://github.com/ToddRosenkrantz/VisUAL3/releases/tag/v3.0.0)), or [build it](#packaging). Unzip it anywhere and run:
 
 | Platform | Run |
 |---|---|
 | Windows | `VisUAL3-win32-x64\VisUAL3.exe` |
 | Linux | `VisUAL3-linux-x64/VisUAL3` |
-| macOS | `VisUAL3-darwin-arm64/VisUAL3.app` (Apple silicon) or `VisUAL3-darwin-x64/VisUAL3.app` (Intel) |
+| macOS | `VisUAL3-darwin-arm64/VisUAL3.app` (Apple silicon, not yet tested) or `VisUAL3-darwin-x64/VisUAL3.app` (Intel) |
 
 [CHANGELOG.md](CHANGELOG.md) lists every significant change since VisUAL2.
 
